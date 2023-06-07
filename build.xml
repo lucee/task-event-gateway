@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project default="clean" basedir="." name="dk-tasks-extension">
+	<description>Build process for the DK Tasks extension</description>
+
+  <!-- load the build.properties -->
+  <property file="build.properties"/>
+
+  <!-- path defintions -->
+  <property name="src" location="source"/>
+  <property name="srcCFML" location="source/cfml"/>
+  <property name="srcImg" location="source/images"/>
+  <property name="jars" location="jars"/>
+  <property name="temp" location="temp"/>
+  <property name="target"  location="target"/>
+
+  <!-- auto increment build number -->
+  <buildnumber file="build.number"/>
+
+  <target name="init" description="initalize the enviroment">
+    <!-- <tstamp/> -->
+    <!-- delete structure from previous build (if existing) -->
+    <delete dir="${temp}"/>
+    <delete dir="${target}"/>
+
+    <!-- create structure -->
+    <mkdir dir="${temp}"/>
+    <mkdir dir="${target}/"/>
+  </target>
+
+
+  <target name="createManifest" depends="init" description="create Manifest file" >
+    <tstamp>
+     <format property="NOW" pattern="yyyy-MM-dd HH:mm:ss" />
+    </tstamp>
+
+    <echo file="${temp}/META-INF/MANIFEST.MF">Manifest-Version: 1.0
+Built-Date: ${NOW}
+version: "${bundleversion}${build.number}"
+id: "${id}"
+name: "${label}"
+description: "${description}"
+lucee-core-version: "${luceeCoreVersion}"
+release-type: ${releaseType}
+event-gateway-instance: "[{'cfc-path':'org.lucee.cfml.TasksGateway','id':'dk-task','read-only':true,'startup-mode':'automatic','custom':{'package':"distrocore.tasks",'templatePath':"",'checkForChangeInterval':10,'logName':"scheduler"}}]"
+</echo>
+  </target>
+  <target name="zip" depends="createManifest" description="generate the distribution" >
+    
+
+    <!-- copy the logo -->
+    <copy todir="${temp}/META-INF">
+      <fileset dir="${srcImg}/">
+        <include name="logo.png"/>
+      </fileset>
+    </copy>
+
+    <!-- copy the components -->
+    <copy todir="${temp}/components">
+      <fileset dir="${src}/components">
+        <include name="**/*.cfc"/>
+      </fileset>
+    </copy>
+
+    <!-- copy the plugins
+    <copy todir="${temp}/webcontexts/admin/plugin">
+      <fileset dir="${src}/plugins">
+        <include name="**/*.cfc"/>
+        <include name="**/*.cfm"/>
+        <include name="**/language.xml"/>
+      </fileset>
+    </copy> -->
+
+    <!-- copy the event-gateway -->
+    <copy todir="${temp}/event-gateways">
+      <fileset dir="${src}/event-gateways">
+        <include name="**/*.cfc"/>
+      </fileset>
+    </copy>
+    <!-- this is necessary because of a bug in the lucee core -->
+    <copy todir="${temp}/event-gateway">
+      <fileset dir="${src}/event-gateways">
+        <include name="**/*.cfc"/>
+      </fileset>
+    </copy>
+
+    <!-- copy the web context
+    <copy todir="${temp}/applications">
+      <fileset dir="${srcCFML}">
+        <include name="**/*.*"/>
+      </fileset>
+    </copy> -->
+
+    <!-- copy the jars
+    <copy todir="${temp}/jars">
+      <fileset dir="${jars}">
+        <include name="**/*.jar"/>
+      </fileset>
+    </copy> -->
+
+    <!-- Zip everything  -->
+     <zip destfile="${target}/${bundlename}-${bundleversion}${build.number}.lex">
+        <zipfileset dir="${temp}"/>
+    </zip>
+		
+  </target>
+
+	<target name="clean"  depends="zip" description="clean up" >
+		<!-- <delete dir="${temp}"/> -->
+	</target>
+
+</project>
