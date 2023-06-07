@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<project default="clean" basedir="." name="dk-tasks-extension">
-	<description>Build process for the DK Tasks extension</description>
+<project default="clean" basedir="." name="lucee-tasks-extension">
+	<description>Build process for the Tasks extension</description>
 
   <!-- load the build.properties -->
   <property file="build.properties"/>
