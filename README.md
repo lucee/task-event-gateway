@@ -1,4 +1,4 @@
-DistroKid Tasks Event Gateway (TEG)
+Tasks Event Gateway (TEG)
 ==================================
 This exetnsion adds the ability to run self configured Tasks when installed into Lucee Server.
 
@@ -11,12 +11,7 @@ ant
 within the project root. Then a new folder "target" will be created that contains the newly build extension.
 
 ## Installation
-To install the extension in DK, simply copy the generated .lex file to "/lucee_extensions" folder (make sure to remove all previous versions) then rebuild and restart your docker image (rebuild is necessary!).
-
-When doing development on the extension itself, that of course can be very time consuming, for that purpose i have created a little helper.
-Inside `/helper/deploy.zip` you find a small tool that allows to deploy extensions and Lucee core files on the fly, no restart necessary.
-Simply deploy the content of the zip to your web root, so you can call the `index.cfm` file in the zip like this `/deploy/index.cfm` in the browser.
-Then simply copy the extension you have build to the `toDeploy` folder and call index.cfm. This will copy the extension to the deploy folder of your enviroment and then after up to a minute the new extension is ready and running (Lucee has a 1 minute interval for checking for new extensions).
+To install the extension, simply copy the generated .lex file to the "/lucee-server/deploy" folder of your Lucee installation.
 
 ## Configuration
 The configuration of the TEG is done in 2 places. In the build.xml for global settings and in every Task/Listener implementation for Task/Listener specific settings.
@@ -24,7 +19,7 @@ The configuration of the TEG is done in 2 places. In the build.xml for global se
 ### Gloabl configuration
 In the `build.xml` on around line 36 to 45, the `META-INF/MANIFEST.MF` file for the Extension gets written with a defintion for a specific event gateway instance that looks like this:
 ```
-{'cfc-path':'org.lucee.cfml.TasksGateway','id':'dk-task','read-only':true,'startup-mode':'automatic','custom':{'package':"core.tasks",'templatePath':"/cron",'checkForChangeInterval':10,'checkForChangeNoMatchInterval':60,logName':"scheduler"}}
+{'cfc-path':'org.lucee.cfml.TasksGateway','id':'lucee-task','read-only':true,'startup-mode':'automatic','custom':{'package':"core.tasks",'templatePath':"/cron",'checkForChangeInterval':10,'checkForChangeNoMatchInterval':60,logName':"scheduler"}}
 ```
 Most important settings for us we may need to touch is `checkForChangeInterval`, this defines the interval that the TEG checks for code changes with in the tasks files. With a higher setting we reduce the amount of file interaction, but of course, it then takes longer for a code change to get detected and applied.
 The settings `checkForChangeNoMatchInterval`, defines the interval for none Tasks, that means when a template was not detected as a Task in the previous check, normally the interval set for this is higher.
