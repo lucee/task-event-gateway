@@ -35,7 +35,7 @@
 
     <echo file="${temp}/META-INF/MANIFEST.MF">Manifest-Version: 1.0
 Built-Date: ${NOW}
-version: "${bundleversion}${build.number}"
+version: "${bundleversion}${build.number}${appendix}"
 id: "${id}"
 name: "${label}"
 description: "${description}"
@@ -98,7 +98,7 @@ event-gateway-instance: "[{'cfc-path':'org.lucee.cfml.TasksGateway','id':'dk-tas
     </copy> -->
 
     <!-- Zip everything  -->
-     <zip destfile="${target}/${bundlename}-${bundleversion}${build.number}.lex">
+     <zip destfile="${target}/${bundlename}-${bundleversion}${build.number}${appendix}.lex">
         <zipfileset dir="${temp}"/>
     </zip>
 		
