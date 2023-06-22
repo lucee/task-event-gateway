@@ -109,7 +109,7 @@ For this the following configuration is necessary
 ```
 'templatePath':"/cron"
 ```
-This can be an absolute directory path, a mapping or a path relative to the webroot. The TEG then will look for changes in all teh .cfm templates in that directory, as a minimal requirement to be executed,they need the following metadata in the beginning of the file:
+This can be an absolute directory path, a mapping or a path relative to the webroot. The TEG then will look for changes in all the .cfm templates in that directory, as a minimal requirement to be executed,they need the following metadata in the beginning of the file:
 ```
 <!---
 @task "CFML Dummy Task"
@@ -123,6 +123,17 @@ This can be an absolute directory path, a mapping or a path relative to the webr
 --->
 ```
 This are exactly the same settings and rules, as with the component based tasks.
+
+You get provided the same arguments you have with the arguments scope for components in the url scope.
+This includes the following Arguments:
+
+* url.id
+* url.iterations
+* url.errors
+* url.lastExecutionTime
+* url.lastExecutionDate
+* url.lastError
+
 
 ## Create your own listener
 Listener get defined exactly the same way as Tasks (see section above), they simply have to implement a different interface, that's it.
