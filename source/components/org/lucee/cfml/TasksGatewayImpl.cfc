@@ -124,8 +124,9 @@ component {
 
     public string function sendMessage(struct data) {
         
-        var usage= "Send a key ""action"" to trigger a specific action in the gateway, the following actions are supported
-    - state: gives the current state (as string) of the gateway instance
+        var usage= "Send a key ""action"" to trigger a specific action in the gateway, the following actions are supported:
+        - state: gives the current state (as string) of the gateway instance
+        - info: gives information about the Event Gateway
             ";
         if(!structKeyExists(data,"action")) return usage;
         
@@ -141,6 +142,9 @@ component {
                 
             
             });
+            case "pause": return toggle(data.task,data.type="soft",true);
+            case "resume": return toggle(data.task,data.type="soft",false);
+
         }
 
 
@@ -148,6 +152,22 @@ component {
         //  no matching action
         cfthrow(message:"invalid action [#data.action#]",detail:usage);
 	}
+    private function toggle(required string taskName,required string taskName, required boolean paused) {
+        var tasks= getTasks();
+        var task=tasks[taskName];
+        if(isNull(local.task)) {
+            if(len(tasks)) cfthrow(message:"there is no task with name [#arguments.taskName#], we only have the following tasks [#structKeyList(tasks)#]",detail:usage);
+            else cfthrow(message:"there is no task with name [#arguments.taskName#], we have no tasks available",detail:usage);
+        }
+        task.paused=arguments.paused;
+        // when hard the pause is phyisical stored ad will survive a restart of the Task Engine job
+        if(arguments.type=="hard") {
+            
+        }
+
+
+        return true;
+    }
 
     private function getTaskInfo() {
         if(!structKeyExists(variables,"_instances")) return {};
@@ -158,16 +178,23 @@ component {
         var tasks={};
         loop struct=variables._instances index="local.id" item="local.instance" {
             if(!structKeyExists(tasks,instance.task.name)) {
+                var label=instance.task.properties.task?:"";
+                if(isNull(label) || isEmpty(label)) label=ListLast(instance.task.name,"./\");
                 task={
                     'name':instance.task.name
+                    ,'id':instance.task.id?:instance.task.name
+                    ,'label':label
+                    ,'description':instance.task.properties.description?:""
                     ,'status':instance.task.status
                     ,'path':instance.task.path
                     ,'lastModified':instance.task.lastModified
                     ,'sleepBefore':instance.task.sleepBefore
                     ,'sleepAfter':instance.task.sleepAfter
                     ,'sleepAfterOnError':instance.task.sleepAfterOnError
+                    ,'threads':instance.task.threads?:0
                     ,'waitForStop':instance.task.waitForStop
                     ,'forceStop':instance.task.forceStop
+                    ,'paused':instance.task.paused?:false
                     ,'instances':[]
                 };
                 tasks[instance.task.name]=task;
@@ -177,6 +204,7 @@ component {
             // instances
             arrayAppend(task.instances,{
                 'name':instance.name
+                ,'id':instance.id?:instance.name
                 ,'index':instance.index
                 ,'startDate':instance.startDate
                 ,'lastExecutionDate':instance.lastExecutionDate?:nullValue()
@@ -186,6 +214,17 @@ component {
                 ,'errors':instance.errors
                 ,'enabled':instance.enabled
             });
+        }
+        return tasks;
+    }
+
+    private function getTasks() {
+        if(!structKeyExists(variables,"_instances")) return {};
+        var tasks={};
+        loop struct=variables._instances index="local.id" item="local.instance" {
+            if(!structKeyExists(tasks,instance.task.name)) {
+                tasks[instance.task.name]=instance.task;
+            }
         }
         return tasks;
     }
@@ -333,7 +372,7 @@ component {
 
     public function startTasks(engine,task, instances,listeners,globalSwitch,prefix) {
         loop from=1 to=task.threads item="local.index" {
-            var instanceName=hash(prefix&":"&task.name&":"&index&":"&createUniqueID());
+            var instanceName=hash(prefix&":"&task.name&":"&index&":"&createUniqueID(),"quick");
             var instance={'name':instanceName,'index':index,'task':task,'startDate':now(),'iterations':0,'errors':0,'enabled':true};
             instances[instanceName]=instance;
             try{inspectTemplates();}catch(e) {pagePoolClear();} // older Lucee version do not support inspectTemplates...
@@ -352,14 +391,14 @@ component {
             thread name=instanceName owner=this engine=engine logName=logName globalSwitch=globalSwitch listeners=listeners instance=instance instances=instances {
                 log text="Tasks Event Gateway start task instance [#instance.task.name#:#instance.index#]" type="info" log=logName;
                 try {
-                    while(instance.enabled && globalSwitch.enabled && engine.isRunning()) {
+                    while(instance.enabled && (!(instance.task.paused?:false)) && globalSwitch.enabled && engine.isRunning()) {
                         setting requesttimeout="100000000000";// 3170 years
                         try{
                             // sleep before
                             if(instance.task.sleepBefore>0) sleep(instance.task.sleepBefore);
                             
                             // stopped in meantime?
-                            if((!instance.enabled || !globalSwitch.enabled || !engine.isRunning())) break;
+                            if((!instance.enabled  || (instance.task.paused?:false) || !globalSwitch.enabled || !engine.isRunning())) break;
 
                             // execute
                             var startDate=now();
@@ -443,12 +482,12 @@ component {
                 finally {
                     // do we end even we should not, because of cfabort for example 
                     if(engine.isRunning() && globalSwitch.enabled && instance.enabled) {
-                        log text="Tasks Event Gateway stops task instance [#instance.task.name#:#instance.index#]; engine-switch:#engine.isRunning()#; global-switch:#globalSwitch.enabled#;instance-switch:#instance.enabled#;" type="info" log=logName;
+                        log text="Tasks Event Gateway stops task instance [#instance.task.name#:#instance.index#]; engine-switch:#engine.isRunning()#; global-switch:#globalSwitch.enabled#;task-switch:#(instance.task.paused?:false)#;instance-switch:#instance.enabled#;" type="info" log=logName;
                         instance.stopped=true;
                     }
                     else structDelete(instances, instance.name,false);
                     
-                    log text="Tasks Event Gateway stops task instance [#instance.task.name#:#instance.index#]; engine-switch:#engine.isRunning()#; global-switch:#globalSwitch.enabled#;instance-switch:#instance.enabled#;" type="info" log=logName;
+                    log text="Tasks Event Gateway stops task instance [#instance.task.name#:#instance.index#]; engine-switch:#engine.isRunning()#; global-switch:#globalSwitch.enabled#;task-switch:#(instance.task.paused?:false)#;instance-switch:#instance.enabled#;" type="info" log=logName;
                 }
             }
         }
@@ -509,6 +548,7 @@ component {
                 var el={};
                 el.status="new";
                 el.name=fullName;
+                el.id=hash(fullName,"quick");
                 try {
                     inspectTemplates();}catch(e) {pagePoolClear();} // older Lucee version do not support inspectTemplates...
                     local.cfc=isSimpleValue(rawData)?createObject("component",el.name):new TaskForScheduler(el.name,rawData.properties); // we do here not new to avoid the init method
