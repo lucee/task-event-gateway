@@ -7,7 +7,7 @@ component {
     variables.NL="
 ";
 	public void function init(string id, struct config, component listener) { 
-        
+        variables.id=arguments.id;
         try {
             log text="Tasks Event Gateway init" type="info" log=logName;
             variables.config=config;
@@ -41,6 +41,17 @@ component {
             if(tmp==-1) tmp = int(readSystemPropOrEnvVar("tasks.event.gateway.checkForChangeNoMatchInterval", 60));
             variables.checkForChangeNoMatchInterval=tmp*1000;
             
+
+            // setting location (ATM only cache is supported)
+            variables.settingLocation=config.settingLocation?:"";
+            if(isEmpty(trim(variables.settingLocation))) variables.settingLocation = readSystemPropOrEnvVar("tasks.event.gateway.settingLocation","");
+            if(!isEmpty(trim(variables.settingLocation)))variables.settingLocation=trim(variables.settingLocation);
+            
+            // setting intervall
+            var tmp=int(config.checkForChangeSettingInterval?:-1);
+            if(tmp==-1) tmp = int(readSystemPropOrEnvVar("tasks.event.gateway.checkForChangeSettingInterval", 0));
+            variables.checkForChangeSettingInterval=tmp>0?tmp*1000:0;
+            
             // log
             variables.logName=config.logName?:"";
             if(isEmpty(trim(variables.logName)))variables.logName=readSystemPropOrEnvVar("tasks.event.gateway.log", "application");
@@ -48,6 +59,7 @@ component {
             log text="Tasks Event Gateway init config: "&serialize(config) type="info" log=logName;
         }
         catch(e){
+            // systemOutput(e,1,1);
 			log text="Tasks Event Gateway failed in init function" exception="#e#" type="error" log=logName;
         }
 		
@@ -138,12 +150,11 @@ component {
                 ,'controllerInterval':variables.controllerInterval
                 ,'stopInterval':variables.stopInterval
                 ,'checkForChangeInterval':variables.checkForChangeInterval
+                ,'checkForChangeSettingInterval':variables.checkForChangeSettingInterval?:0
                 ,'tasks':getTaskInfo()
-                
-            
             });
-            case "pause": return toggle(data.task,data.type="soft",true);
-            case "resume": return toggle(data.task,data.type="soft",false);
+            case "pause": return toggle(data.task,true);
+            case "resume": return toggle(data.task,false);
 
         }
 
@@ -152,7 +163,7 @@ component {
         //  no matching action
         cfthrow(message:"invalid action [#data.action#]",detail:usage);
 	}
-    private function toggle(required string taskName,required string taskName, required boolean paused) {
+    private function toggle(required string taskName, required boolean paused) {
         var tasks= getTasks();
         var task=tasks[taskName];
         if(isNull(local.task)) {
@@ -160,13 +171,30 @@ component {
             else cfthrow(message:"there is no task with name [#arguments.taskName#], we have no tasks available",detail:usage);
         }
         task.paused=arguments.paused;
-        // when hard the pause is phyisical stored ad will survive a restart of the Task Engine job
-        if(arguments.type=="hard") {
-            
+        // when we have a setting location the pause is phyisical stored ad will survive a restart of the Task Engine job
+        if(!isNull(variables.settingLocation)) {
+            setPause(variables.settingLocation, variables.id, task.id, arguments.paused);
         }
-
-
         return true;
+    }
+
+    private function setPause(required string cache, required string gateway, required string task, required boolean pause) {
+        // TOOD optimize for Redis
+        var key="task_eventgateway_setting:"&gateway&":"&task;
+        var data=cacheGet(id:key,cacheName:cache);
+        // new entry
+        if(isNull(data)) var data={};
+     
+        var prev=data.paused?:false;
+        data.paused=arguments.pause;
+        cachePut(id:key,value:data,timeSpan:1000000 /*2739 years*/ ,cacheName:cache);
+        return prev;
+    }
+    public function getPause(required string cache, required string gateway, required string task) {
+        // TOOD optimize for Redis
+        var key="task_eventgateway_setting:"&gateway&":"&task;
+        var data=cacheGet(id:key,cacheName:cache);
+        return data.paused?:false;
     }
 
     private function getTaskInfo() {
@@ -252,12 +280,14 @@ component {
         // starting the controller (this task only check for changes with the Tasks defined)
         thread  name=controllerName controllerName=controllerName instances=instances owner=this 
                 engine=engine logName=logName cfcs=cfcs tasks=tasks listeners=listeners globalSwitch=globalSwitch
-                prefix=prefix checkForChangeInterval=variables.checkForChangeInterval {
+                prefix=prefix gatewayId=variables.id  checkForChangeInterval=variables.checkForChangeInterval  settingLocation=variables.settingLocation 
+                checkForChangeSettingInterval=variables.checkForChangeSettingInterval {
             log text="Tasks Event Gateway enter controller" type="info" log=logName;
 			
             owner.setState("running");
             var first=true;
             var lastCheck=getTickCount();
+            var lastCheckSettings=getTickCount();
             while(globalSwitch.enabled && engine.isRunning()) {
 
                 log text="Tasks Event Gateway running the controller, ATM we have #len(instances)# task instances" type="debug" log=logName;
@@ -265,9 +295,20 @@ component {
                     
                     if(first) {
                         loop struct=tasks index="cfcName" item="local.el" {
+                            // read task paused setting on the first run
+                            if(!isEmpty(settingLocation)) {
+                                try {
+                                    var paused=owner.getPause(settingLocation, (variables.id?:""), (el.id?:""));
+                                    el.paused=paused?:false;
+                                }
+                                // cache maybe not available
+                                catch(e) {
+                                    log text="Tasks Event Gateway in controller" exception=e type="error" log=logName;
+                                    sleep(5000); // done do avoid fast spinning in case of an error TODO move to config
+                                }
+                            }
                             owner.startTasks(engine,el,instances,listeners,globalSwitch,prefix);
                         }
-
                         first=false;
                     }
                     // look for changes
@@ -315,8 +356,28 @@ component {
                         }
                         lastCheck=getTickCount();
                     }
+
+
+                    // do have other servers changed the pause settings?
+                    if(!isEmpty(settingLocation) && variables.checkForChangeSettingInterval>0 && lastCheckSettings+variables.checkForChangeSettingInterval<getTickCount()) {
+                        // TODO do we need to flush the cfthread scope after this?
+                        thread  gatewayId=(gatewayId?:"") owner=owner tasks=tasks logName=logName settingLocation=settingLocation {
+                            try {
+                                loop struct=tasks index="cfcName" item="local.el" {
+                                    var paused=owner.getPause(settingLocation, gatewayId, (el.id?:""));
+                                    if((paused?:false)!=(el.paused?:false)) el.paused=paused?:false;
+                                }
+                            }
+                            // cache maybe not available
+                            catch(e) {
+                                log text="Tasks Event Gateway in controller" exception=e type="error" log=logName;
+                            }
+                        }
+                        lastCheckSettings=getTickCount();
+                    }
                 }
                 catch(e) {
+                    systemOutput(e,1,1);
                     log text="Tasks Event Gateway in controller" exception=e type="error" log=logName;
                     sleep(5000); // done do avoid fast spinning in case of an error TODO move to config
                 }
@@ -391,21 +452,21 @@ component {
             thread name=instanceName owner=this engine=engine logName=logName globalSwitch=globalSwitch listeners=listeners instance=instance instances=instances {
                 log text="Tasks Event Gateway start task instance [#instance.task.name#:#instance.index#]" type="info" log=logName;
                 try {
-                    while(instance.enabled && (!(instance.task.paused?:false)) && globalSwitch.enabled && engine.isRunning()) {
+                    while(instance.enabled && globalSwitch.enabled && engine.isRunning()) {
                         setting requesttimeout="100000000000";// 3170 years
                         try{
                             // sleep before
                             if(instance.task.sleepBefore>0) sleep(instance.task.sleepBefore);
                             
                             // stopped in meantime?
-                            if((!instance.enabled  || (instance.task.paused?:false) || !globalSwitch.enabled || !engine.isRunning())) break;
+                            if((!instance.enabled || !globalSwitch.enabled || !engine.isRunning())) break;
 
                             // execute
                             var startDate=now();
                             var startTime=getTickCount();
                             var newInstance=false;
                             // listener before
-                            if(len(listeners)) {
+                            if(!(instance.task.paused?:false) && len(listeners)) {
                                 try {
                                     loop struct=listeners index="local.name" item="local.listener" {
                                         if(allowed(instance.task.name,listener.allowed,listener.denied)) {
@@ -422,10 +483,13 @@ component {
                                     log text="Tasks Event Gateway failed to execute listener instance" exception=e type="error" log=logName;
                                 }
                             }
-                            instance.cfc.invoke(instance.name,instance.iterations,instance.errors,instance.lastExecutionTime?:nullValue(),instance.lastExecutionDate?:nullValue(),instance.lastError?:nullValue());
-                            log text="Tasks Event Gateway executes task instance [#instance.task.name#:#instance.index#] sucessfully" type="debug" log=logName;
+                            if(!(instance.task.paused?:false)) {
+                                instance.cfc.invoke(instance.name,instance.iterations,instance.errors,instance.lastExecutionTime?:nullValue(),instance.lastExecutionDate?:nullValue(),instance.lastError?:nullValue());
+                                log text="Tasks Event Gateway executes task instance [#instance.task.name#:#instance.index#] sucessfully" type="debug" log=logName;
+                            
+                            }
                             // listener after
-                            if(len(listeners)) {
+                            if(!(instance.task.paused?:false) && len(listeners)) {
                                 try {
                                     loop struct=listeners index="local.name" item="local.listener" {
                                         if(allowed(instance.task.name,listener.allowed,listener.denied)) {
