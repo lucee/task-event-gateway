@@ -172,7 +172,7 @@ component {
         }
         task.paused=arguments.paused;
         // when we have a setting location the pause is phyisical stored ad will survive a restart of the Task Engine job
-        if(!isNull(variables.settingLocation)) {
+        if(!isEmpty(variables.settingLocation?:"")) {
             setPause(variables.settingLocation, variables.id, task.id, arguments.paused);
         }
         return true;

@@ -41,7 +41,7 @@ name: "${label}"
 description: "${description}"
 lucee-core-version: "${luceeCoreVersion}"
 release-type: ${releaseType}
-event-gateway-instance: "[{'cfc-path':'org.lucee.cfml.TasksGateway','id':'${task-instance-name}','read-only':true,'startup-mode':'automatic','custom':{'package':"${task-instance-package}",'templatePath':"",'checkForChangeInterval':10,'logName':"scheduler"}}]"
+event-gateway-instance: "[{'cfc-path':'org.lucee.cfml.TasksGateway','id':'${task-instance-name}','read-only':true,'startup-mode':'automatic','custom':{'package':"${task-instance-package}",'templatePath':"",'checkForChangeInterval':10,'settingLocation':"${setting-location}",'checkForChangeSettingInterval':${check-for-change-setting-interval},'logName':"scheduler"}}]"
 </echo>
 
   </target>
