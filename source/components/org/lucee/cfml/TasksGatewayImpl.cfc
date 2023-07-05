@@ -164,7 +164,7 @@ component {
         cfthrow(message:"invalid action [#data.action#]",detail:usage);
 	}
     private function toggle(required string taskName, required boolean paused) {
-        var tasks= getTasks();
+        var tasks= variables._tasks;
         var task=tasks[taskName];
         if(isNull(local.task)) {
             if(len(tasks)) cfthrow(message:"there is no task with name [#arguments.taskName#], we only have the following tasks [#structKeyList(tasks)#]",detail:usage);
@@ -198,39 +198,37 @@ component {
     }
 
     private function getTaskInfo() {
-        if(!structKeyExists(variables,"_instances")) return {};
+        if(!structKeyExists(variables,"_tasks")) return {};
         
-        // instances
-        // task: cfc,meta,fileInfo,threads,,,,
-            
+        // define tasks
         var tasks={};
+        loop struct=variables._tasks index="local.name" item="local.task" {
+            var label=task.properties.task?:"";
+            if(isNull(label) || isEmpty(label)) label=ListLast(task.name,"./\");
+            tasks[task.name]={
+                'name':task.name
+                ,'id':task.id?:task.name
+                ,'label':label
+                ,'description':task.properties.description?:""
+                ,'status':task.status
+                ,'path':task.path
+                ,'lastModified':task.lastModified
+                ,'sleepBefore':task.sleepBefore
+                ,'sleepAfter':task.sleepAfter
+                ,'sleepAfterOnError':task.sleepAfterOnError
+                ,'threads':task.threads?:0
+                ,'waitForStop':task.waitForStop
+                ,'forceStop':task.forceStop
+                ,'paused':task.paused?:false
+                ,'instances':[]
+            };
+        }
+
+        // add instances to tasks
+        if(!structKeyExists(variables,"_instances")) return tasks;
         loop struct=variables._instances index="local.id" item="local.instance" {
-            if(!structKeyExists(tasks,instance.task.name)) {
-                var label=instance.task.properties.task?:"";
-                if(isNull(label) || isEmpty(label)) label=ListLast(instance.task.name,"./\");
-                task={
-                    'name':instance.task.name
-                    ,'id':instance.task.id?:instance.task.name
-                    ,'label':label
-                    ,'description':instance.task.properties.description?:""
-                    ,'status':instance.task.status
-                    ,'path':instance.task.path
-                    ,'lastModified':instance.task.lastModified
-                    ,'sleepBefore':instance.task.sleepBefore
-                    ,'sleepAfter':instance.task.sleepAfter
-                    ,'sleepAfterOnError':instance.task.sleepAfterOnError
-                    ,'threads':instance.task.threads?:0
-                    ,'waitForStop':instance.task.waitForStop
-                    ,'forceStop':instance.task.forceStop
-                    ,'paused':instance.task.paused?:false
-                    ,'instances':[]
-                };
-                tasks[instance.task.name]=task;
-            }
-            else task=tasks[instance.task.name];
-            
-            // instances
-            arrayAppend(task.instances,{
+            if(isNull(tasks[instance.task.name].instances) || tasks[instance.task.name].paused) continue;
+            arrayAppend(tasks[instance.task.name].instances,{
                 'name':instance.name
                 ,'id':instance.id?:instance.name
                 ,'index':instance.index
@@ -242,17 +240,6 @@ component {
                 ,'errors':instance.errors
                 ,'enabled':instance.enabled
             });
-        }
-        return tasks;
-    }
-
-    private function getTasks() {
-        if(!structKeyExists(variables,"_instances")) return {};
-        var tasks={};
-        loop struct=variables._instances index="local.id" item="local.instance" {
-            if(!structKeyExists(tasks,instance.task.name)) {
-                tasks[instance.task.name]=instance.task;
-            }
         }
         return tasks;
     }
@@ -276,6 +263,7 @@ component {
             var listeners={};
             log text="Tasks Event Gateway failed loading the Tasks" exception=e type="error" log=logName;
         }
+        variables._tasks=local.tasks;
 
         // starting the controller (this task only check for changes with the Tasks defined)
         thread  name=controllerName controllerName=controllerName instances=instances owner=this 
@@ -314,7 +302,7 @@ component {
                     // look for changes
                     else if(lastCheck+variables.checkForChangeInterval<getTickCount()) {
                         var cfcs=loadCFCs(cfcs);
-                        var tasks=filter(cfcs,"task");
+                        owner.replaceit(tasks,filter(cfcs,"task"));
                         var listeners=filter(cfcs,"listener",listeners);
 
                         // stop modidified and deleted
@@ -348,7 +336,7 @@ component {
 
                         // start new and modified tasks
                         loop struct=tasks index="cfcName" item="local.el" {
-                            if(el.status=="new" || el.status=="modified" || el.status=="failed") {
+                            if((el.status=="new" || el.status=="modified" || el.status=="failed")) {
                                 owner.startTasks(engine,el,instances,listeners,globalSwitch,prefix);
                                 log text="Tasks Event Gateway starts task instance(s) [#el.name#]" type="info" log=logName;
                                 el.status="existing";
@@ -452,21 +440,21 @@ component {
             thread name=instanceName owner=this engine=engine logName=logName globalSwitch=globalSwitch listeners=listeners instance=instance instances=instances {
                 log text="Tasks Event Gateway start task instance [#instance.task.name#:#instance.index#]" type="info" log=logName;
                 try {
-                    while(instance.enabled && globalSwitch.enabled && engine.isRunning()) {
+                    while(instance.enabled && !(instance.task.paused?:false) && globalSwitch.enabled && engine.isRunning()) {
                         setting requesttimeout="100000000000";// 3170 years
                         try{
                             // sleep before
                             if(instance.task.sleepBefore>0) sleep(instance.task.sleepBefore);
                             
                             // stopped in meantime?
-                            if((!instance.enabled || !globalSwitch.enabled || !engine.isRunning())) break;
+                            if((!instance.enabled || (instance.task.paused?:false) || !globalSwitch.enabled || !engine.isRunning())) break;
 
                             // execute
                             var startDate=now();
                             var startTime=getTickCount();
                             var newInstance=false;
                             // listener before
-                            if(!(instance.task.paused?:false) && len(listeners)) {
+                            if(len(listeners)) {
                                 try {
                                     loop struct=listeners index="local.name" item="local.listener" {
                                         if(allowed(instance.task.name,listener.allowed,listener.denied)) {
@@ -483,13 +471,11 @@ component {
                                     log text="Tasks Event Gateway failed to execute listener instance" exception=e type="error" log=logName;
                                 }
                             }
-                            if(!(instance.task.paused?:false)) {
-                                instance.cfc.invoke(instance.name,instance.iterations,instance.errors,instance.lastExecutionTime?:nullValue(),instance.lastExecutionDate?:nullValue(),instance.lastError?:nullValue());
-                                log text="Tasks Event Gateway executes task instance [#instance.task.name#:#instance.index#] sucessfully" type="debug" log=logName;
+                            instance.cfc.invoke(instance.name,instance.iterations,instance.errors,instance.lastExecutionTime?:nullValue(),instance.lastExecutionDate?:nullValue(),instance.lastError?:nullValue());
+                            log text="Tasks Event Gateway executes task instance [#instance.task.name#:#instance.index#] sucessfully" type="debug" log=logName;
                             
-                            }
                             // listener after
-                            if(!(instance.task.paused?:false) && len(listeners)) {
+                            if(len(listeners)) {
                                 try {
                                     loop struct=listeners index="local.name" item="local.listener" {
                                         if(allowed(instance.task.name,listener.allowed,listener.denied)) {
@@ -654,7 +640,7 @@ component {
 
                         // threads
                         el.threads=cfc.getConcurrentThreadCount();
-                        if(!isNumeric(el.threads) || el.threads<1)el.threads=1;
+                        if(!isNumeric(el.threads) || el.threads<0)el.threads=0;
 
                         // wait for stop
                         el.waitForStop=int(cfc.getHowLongToWaitForTaskOnStop());
@@ -848,5 +834,12 @@ component {
         var res=server.system.environment[ucase(replace(key, ".", "_","all"))]?:nullValue();
         if(!isNull(res)) return res;
         return defaultValue;
+    }
+
+    public function replaceit(existingData, newData) {
+        structClear(existingData);
+        loop struct=newData index="local.k" item="local.v" {
+            existingData[k]=v;
+        }
     }
 }
