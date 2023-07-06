@@ -330,7 +330,9 @@ component {
                                 instance.enabled=false; 
                                 structDelete(instances, instanceHash,false);
                                 instance.task.status="failed";
-                                log text="Tasks Event Gateway instance failed for an unknown reason and will be removed from pool, task instance [#el.name#:#instance.index#]" type="error" log=logName;
+                                if(!(instance.task.paused?:false)){
+                                    log text="Tasks Event Gateway instance failed for an unknown reason and will be removed from pool, task instance [#el.name#:#instance.index#]" type="error" log=logName;
+                                }
                             }
                         }
 
