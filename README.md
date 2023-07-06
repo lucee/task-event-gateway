@@ -1,6 +1,6 @@
 Tasks Event Gateway (TEG)
 ==================================
-This exetnsion adds the ability to run self configured Tasks when installed into Lucee Server.
+This extension adds the ability to run self configured Tasks when installed into Lucee Server.
 
 ## Build
 The extension is a ANT project, in order to build it, you need to have ANT installed on your machine.
