@@ -41,7 +41,7 @@ A global configuration also can be done via Enviroment Variables or System Prope
 * TASKS_EVENT_GATEWAY_CHECKFORCHANGEINTERVAL / tasks.event.gateway.checkForChangeInterval - time in seconds to check for change when previously the template was detected as a task (default=10)
 * TASKS_EVENT_GATEWAY_CHECKFORCHANGEINTERVAL / tasks.event.gateway.checkForChangeNoMatchInterval - time in seconds to check for change when previously the template was NOT detected as a task (default=60)
 * TASKS_EVENT_GATEWAY_SETTINGLOCATION / tasks.event.gateway.settinglocation - cache defintion that holds configuration of tasks, for the moment this is only used to store if a task is paused or not. In the future this will be used to coordinates multiple instances of servers.
-* * TASKS_EVENT_GATEWAY_CHECKFORCHANGESETTINGINTERVAL /  tasks.event.gateway.checkForChangeSettingInterval - time in seconds to check for change on the settings location. so for example when server A pauses a task, that will be the maxmal time it takes server B to pick up this change
+* TASKS_EVENT_GATEWAY_CHECKFORCHANGESETTINGINTERVAL /  tasks.event.gateway.checkForChangeSettingInterval - time in seconds to check for change on the settings location. so for example when server A pauses a task, that will be the maxmal time it takes server B to pick up this change
 * TASKS_EVENT_GATEWAY_LOG / tasks.event.gateway.log - name of the log used (default="application")
 
 
