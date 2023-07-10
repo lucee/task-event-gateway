@@ -16,7 +16,7 @@ To install the extension, simply copy the generated .lex file to the "/lucee-ser
 ## Configuration
 The configuration of the TEG is done in 2 places. In the build.xml for global settings and in every Task/Listener implementation for Task/Listener specific settings.
 
-### Gloabl configuration
+### Global configuration
 In the `build.xml` on around line 36 to 45, the `META-INF/MANIFEST.MF` file for the Extension gets written with a defintion for a specific event gateway instance that looks like this:
 ```
 {'cfc-path':'org.lucee.cfml.TasksGateway','id':'lucee-task','read-only':true,'startup-mode':'automatic','custom':{'package':"core.tasks",'templatePath':"/cron",'checkForChangeInterval':10,'checkForChangeNoMatchInterval':60,logName':"scheduler"}}
