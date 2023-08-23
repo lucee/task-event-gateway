@@ -51,6 +51,16 @@ component {
             var tmp=int(config.checkForChangeSettingInterval?:-1);
             if(tmp==-1) tmp = int(readSystemPropOrEnvVar("tasks.event.gateway.checkForChangeSettingInterval", 0));
             variables.checkForChangeSettingInterval=tmp>0?tmp*1000:0;
+
+            // active
+            var tmp = readSystemPropOrEnvVar("tasks.event.gateway.activator", "com.distrokid.tasks.Activator");
+            if(!isEmpty(tmp)) {
+                try {
+                    variables.activator=createObject("component", tmp);
+                }
+                catch(e) {}
+            }
+            if(isNull(variables.activator)) variables.activator={active:function (){return true;}};
             
             // log
             variables.logName=config.logName?:"";
@@ -68,13 +78,16 @@ component {
 	public void function start() {
         try {
 			log text="Tasks Event Gateway starting" type="info" log=logName;
+            
+            
+            
             // just in case Start get triggered without stop before
             if(!isNull(variables.globalSwitch) && variables.globalSwitch.enabled)
                 variables.globalSwitch.enabled=false;
 
 			variables.globalSwitch={enabled:true};
             variables._state="starting";
-            run(variables.globalSwitch);
+            run(variables.globalSwitch,variables.activator);
             // wait for the runner to start up (that should only take couple ms)
             var countDown=500;
             while(--countDown>0) {
@@ -244,7 +257,7 @@ component {
         return tasks;
     }
 
-    private void function run(globalSwitch) {
+    private void function run(globalSwitch,activator) {
         local.prefix=createUniqueID();
         local.controllerName=local.prefix&":controller";
         local.instances={};
@@ -267,7 +280,7 @@ component {
 
         // starting the controller (this task only check for changes with the Tasks defined)
         thread  name=controllerName controllerName=controllerName instances=instances owner=this 
-                engine=engine logName=logName cfcs=cfcs tasks=tasks listeners=listeners globalSwitch=globalSwitch
+                engine=engine logName=logName cfcs=cfcs tasks=tasks listeners=listeners globalSwitch=globalSwitch activator=activator
                 prefix=prefix gatewayId=variables.id  checkForChangeInterval=variables.checkForChangeInterval  settingLocation=variables.settingLocation 
                 checkForChangeSettingInterval=variables.checkForChangeSettingInterval {
             log text="Tasks Event Gateway enter controller" type="info" log=logName;
@@ -276,7 +289,7 @@ component {
             var first=true;
             var lastCheck=getTickCount();
             var lastCheckSettings=getTickCount();
-            while(globalSwitch.enabled && engine.isRunning()) {
+            while(globalSwitch.enabled && engine.isRunning() && activator.active()) {
 
                 log text="Tasks Event Gateway running the controller, ATM we have #len(instances)# task instances" type="debug" log=logName;
                 try {
@@ -295,7 +308,7 @@ component {
                                     sleep(5000); // done do avoid fast spinning in case of an error TODO move to config
                                 }
                             }
-                            owner.startTasks(engine,el,instances,listeners,globalSwitch,prefix);
+                            owner.startTasks(engine,el,instances,listeners,globalSwitch,activator,prefix);
                         }
                         first=false;
                     }
@@ -339,7 +352,7 @@ component {
                         // start new and modified tasks
                         loop struct=tasks index="cfcName" item="local.el" {
                             if((el.status=="new" || el.status=="modified" || el.status=="failed")) {
-                                owner.startTasks(engine,el,instances,listeners,globalSwitch,prefix);
+                                owner.startTasks(engine,el,instances,listeners,globalSwitch,activator,prefix);
                                 log text="Tasks Event Gateway starts task instance(s) [#el.name#]" type="info" log=logName;
                                 el.status="existing";
                             }
@@ -421,7 +434,7 @@ component {
 
 	}
 
-    public function startTasks(engine,task, instances,listeners,globalSwitch,prefix) {
+    public function startTasks(engine,task, instances,listeners,globalSwitch,activator,prefix) {
         loop from=1 to=task.threads item="local.index" {
             var instanceName=hash(prefix&":"&task.name&":"&index&":"&createUniqueID(),"quick");
             var instance={'name':instanceName,'index':index,'task':task,'startDate':now(),'iterations':0,'errors':0,'enabled':true};
@@ -439,17 +452,17 @@ component {
                 log text="Tasks Event Gateway failed to construct [#instance.task.name#]" exception=e type="error" log=logName;
             }
 
-            thread name=instanceName owner=this engine=engine logName=logName globalSwitch=globalSwitch listeners=listeners instance=instance instances=instances {
+            thread name=instanceName owner=this engine=engine logName=logName globalSwitch=globalSwitch activator=activator listeners=listeners instance=instance instances=instances {
                 log text="Tasks Event Gateway start task instance [#instance.task.name#:#instance.index#]" type="info" log=logName;
                 try {
-                    while(instance.enabled && !(instance.task.paused?:false) && globalSwitch.enabled && engine.isRunning()) {
+                    while(instance.enabled && !(instance.task.paused?:false) && globalSwitch.enabled && engine.isRunning() && activator.active()) {
                         setting requesttimeout="100000000000";// 3170 years
                         try{
                             // sleep before
                             if(instance.task.sleepBefore>0) sleep(instance.task.sleepBefore);
                             
                             // stopped in meantime?
-                            if((!instance.enabled || (instance.task.paused?:false) || !globalSwitch.enabled || !engine.isRunning())) break;
+                            if((!instance.enabled || (instance.task.paused?:false) || !globalSwitch.enabled || !engine.isRunning() || !activator.active())) break;
 
                             // execute
                             var startDate=now();
@@ -499,7 +512,7 @@ component {
                             instance.lastExecutionDate=startDate;
 
                             // sleep after TODO notify when stop
-                            if(instance.task.sleepAfter>0 && (instance.enabled && globalSwitch.enabled && engine.isRunning())) sleep(instance.task.sleepAfter);
+                            if(instance.task.sleepAfter>0 && (instance.enabled && globalSwitch.enabled && engine.isRunning() && activator.active())) sleep(instance.task.sleepAfter);
                         }
                         catch(e) {
                             instance.errors++;
@@ -526,20 +539,20 @@ component {
                             log text="Tasks Event Gateway failed to execute task instance [#instance.task.name#]; start:#instance.startDate#; iterations:#instance.iterations#; errors: #instance.errors#; last-exe:#instance.lastExecutionDate?:""# " exception=e type="error" log=logName;
 
                             // sleep after error TODO notify when stop
-                            if(instance.task.sleepAfterOnError>0 && (instance.enabled && globalSwitch.enabled && engine.isRunning())) sleep(instance.task.sleepAfterOnError);
+                            if(instance.task.sleepAfterOnError>0 && (instance.enabled && globalSwitch.enabled && engine.isRunning() && activator.active())) sleep(instance.task.sleepAfterOnError);
                             //structDelete(instance, "cfc",false); // remove that instance so a new one is created
                         }
                     }
                 }
                 finally {
                     // do we end even we should not, because of cfabort for example 
-                    if(engine.isRunning() && globalSwitch.enabled && instance.enabled) {
-                        log text="Tasks Event Gateway stops task instance [#instance.task.name#:#instance.index#]; engine-switch:#engine.isRunning()#; global-switch:#globalSwitch.enabled#;task-switch:#(instance.task.paused?:false)#;instance-switch:#instance.enabled#;" type="info" log=logName;
+                    if(engine.isRunning() && globalSwitch.enabled && instance.enabled  && activator.active()) {
+                        log text="Tasks Event Gateway stops task instance [#instance.task.name#:#instance.index#]; engine-switch:#engine.isRunning()#; global-switch:#globalSwitch.enabled#;task-switch:#(instance.task.paused?:false)#;instance-switch:#instance.enabled#;activator:#activator.active()#;" type="info" log=logName;
                         instance.stopped=true;
                     }
                     else structDelete(instances, instance.name,false);
                     
-                    log text="Tasks Event Gateway stops task instance [#instance.task.name#:#instance.index#]; engine-switch:#engine.isRunning()#; global-switch:#globalSwitch.enabled#;task-switch:#(instance.task.paused?:false)#;instance-switch:#instance.enabled#;" type="info" log=logName;
+                    log text="Tasks Event Gateway stops task instance [#instance.task.name#:#instance.index#]; engine-switch:#engine.isRunning()#; global-switch:#globalSwitch.enabled#;task-switch:#(instance.task.paused?:false)#;instance-switch:#instance.enabled#;activator:#activator.active()#;" type="info" log=logName;
                 }
             }
         }
