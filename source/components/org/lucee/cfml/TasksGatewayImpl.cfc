@@ -9,6 +9,11 @@ component {
 	public void function init(string id, struct config, component listener) { 
         variables.id=arguments.id;
         try {
+            // log
+            variables.logName=config.logName?:"";
+            if(isEmpty(trim(variables.logName)))variables.logName=readSystemPropOrEnvVar("tasks.event.gateway.log", "application");
+
+
             log text="Tasks Event Gateway init" type="info" log=logName;
             variables.config=config;
             // package
@@ -54,7 +59,7 @@ component {
 
             // active
             var tmp = readSystemPropOrEnvVar("tasks.event.gateway.activator", "com.distrokid.tasks.Activator");
-            if(!isEmpty(tmp)) {
+            if(!isNull(tmp) && !isEmpty(tmp)) {
                 log text="Loading Activator: #tmp#" type="info" log=logName;
                 try {
                     variables.activator=createObject("component", tmp);
@@ -63,19 +68,18 @@ component {
                     log exception=e type="error" log=logName;
                 }
             }
+            else {
+                log text="No Activator set" type="info" log=logName;
+            }
             if(isNull(variables.activator)) {
                 log text="failed to load activator, using instead simple struct collection always returning true" type="warn" log=logName;
                 variables.activator={active:function (){return true;}};
             }
-            // log
-            variables.logName=config.logName?:"";
-            if(isEmpty(trim(variables.logName)))variables.logName=readSystemPropOrEnvVar("tasks.event.gateway.log", "application");
 
-            log text="Tasks Event Gateway init config: "&serialize(config) type="info" log=logName;
+            log text="Task Event Gateway init config: "&serialize(config) type="info" log=logName;
         }
         catch(e){
-            // systemOutput(e,1,1);
-			log text="Tasks Event Gateway failed in init function" exception="#e#" type="error" log=logName;
+            log text="Tasks Event Gateway failed in init function" exception="#e#" type="error" log=logName;
         }
 		
 	}
