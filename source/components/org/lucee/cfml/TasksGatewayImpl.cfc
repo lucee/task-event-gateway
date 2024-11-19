@@ -55,13 +55,18 @@ component {
             // active
             var tmp = readSystemPropOrEnvVar("tasks.event.gateway.activator", "com.distrokid.tasks.Activator");
             if(!isEmpty(tmp)) {
+                log text="Loading Activator: #tmp#" type="info" log=logName;
                 try {
                     variables.activator=createObject("component", tmp);
                 }
-                catch(e) {}
+                catch(e) {
+                    log exception=e type="error" log=logName;
+                }
             }
-            if(isNull(variables.activator)) variables.activator={active:function (){return true;}};
-            
+            if(isNull(variables.activator)) {
+                log text="failed to load activator, using instead simple struct collection always returning true" type="warn" log=logName;
+                variables.activator={active:function (){return true;}};
+            }
             // log
             variables.logName=config.logName?:"";
             if(isEmpty(trim(variables.logName)))variables.logName=readSystemPropOrEnvVar("tasks.event.gateway.log", "application");
@@ -96,8 +101,15 @@ component {
             }
             if(getState()=="running")
                 log text="Tasks Event Gateway sucessfully started" type="info" log=logName;
-            else
-                log text="Tasks Event Gateway failed to start for unknown reasons" type="error" log=logName;
+            else {
+                if (structKeyExists(variables, "activator") && !variables.activator.active()) {
+                    log text="The Tasks Event Gateway has stopped because the Activator is inactive." type="info" log=logName;
+                } 
+                else {
+                    log text="The Tasks Event Gateway failed to start due to an unknown issue. Please check the logs and configuration for further details." type="error" log=logName;
+                }
+                
+            }
         }
         catch(local.e){
 			variables._state="failed";
