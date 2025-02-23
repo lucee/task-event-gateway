@@ -473,7 +473,7 @@ component {
                 try {
                     while(instance.enabled && !(instance.task.paused?:false) && globalSwitch.enabled && engine.isRunning() && activator.active()) {
                         setting requesttimeout="100000000000";// 3170 years
-                        try{
+                        try {
                             // sleep before
                             if(instance.task.sleepBefore>0) sleep(instance.task.sleepBefore);
                             
@@ -557,6 +557,14 @@ component {
                             // sleep after error TODO notify when stop
                             if(instance.task.sleepAfterOnError>0 && (instance.enabled && globalSwitch.enabled && engine.isRunning() && activator.active())) sleep(instance.task.sleepAfterOnError);
                             //structDelete(instance, "cfc",false); // remove that instance so a new one is created
+                        }
+                        finally {
+                            try {
+                                var pc=getPageContext();
+                                var writer=pc.getOut();
+                                writer.clearBuffer(); // clears data in response buffer
+                            }
+                            catch(ex) {}
                         }
                     }
                 }
