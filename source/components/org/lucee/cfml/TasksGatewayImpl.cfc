@@ -379,8 +379,8 @@ component {
 
                     // do have other servers changed the pause settings?
                     if(!isEmpty(settingLocation) && variables.checkForChangeSettingInterval>0 && lastCheckSettings+variables.checkForChangeSettingInterval<getTickCount()) {
-                        // TODO do we need to flush the cfthread scope after this?
-                        thread  gatewayId=(gatewayId?:"") owner=owner tasks=tasks logName=logName settingLocation=settingLocation {
+                        var threadName="t#createUniqueID()#";
+                        thread name=threadName gatewayId=(gatewayId?:"") owner=owner tasks=tasks logName=logName settingLocation=settingLocation {
                             try {
                                 loop struct=tasks index="cfcName" item="local.el" {
                                     var paused=owner.getPause(settingLocation, gatewayId, (el.id?:""));
@@ -392,6 +392,8 @@ component {
                                 log text="Tasks Event Gateway in controller" exception=e type="error" log=logName;
                             }
                         }
+                        // because we don't need the thread reference we simply remove it
+                        structDelete(cfthread, threadName, false);
                         lastCheckSettings=getTickCount();
                     }
                 }
