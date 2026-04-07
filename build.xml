@@ -35,9 +35,10 @@ name: "${label}"
 description: "${description}"
 lucee-core-version: "${luceeCoreVersion}"
 release-type: ${releaseType}
-event-gateway-instance: "[{'cfc-path':'org.lucee.cfml.TasksGateway','id':'${taskInstanceName}','read-only':true,'startup-mode':'automatic','custom':{'package':"${taskInstancePackage}",'templatePath':"",'checkForChangeInterval':10,'settingLocation':"${settingLocation}",'checkForChangeSettingInterval':${checkForChangeSettingInterval},'logName':"scheduler"}}]"
 </echo>
-
+<!--
+event-gateway-instance: "[{'cfc-path':'org.lucee.cfml.TasksGateway','id':'${taskInstanceName}','read-only':true,'startup-mode':'automatic','custom':{'package':"${taskInstancePackage}",'templatePath':"",'checkForChangeInterval':10,'settingLocation':"${settingLocation}",'checkForChangeSettingInterval':${checkForChangeSettingInterval},'logName':"scheduler"}}]"
+ -->
   </target>
   <target name="zip" depends="createManifest" description="generate the distribution" >
     

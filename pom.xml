@@ -4,7 +4,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>org.lucee</groupId>
     <artifactId>tasks-extension</artifactId>
-    <version>1.0.0.15-SNAPSHOT</version>
+    <version>1.1.0.0-SNAPSHOT</version>
     <packaging>pom</packaging>
     <name>Tasks Extension</name>
 
@@ -12,16 +12,16 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>11</maven.compiler.source>
         <maven.compiler.target>11</maven.compiler.target>
-        <id>947C02B0-7AE4-4054-938A8E059DD7625A</id>
+        <id>0EDF8686-BDC8-442B-B4EFE093EA6CC0C4</id>
         <bundlename>org.lucee.tasks.extension</bundlename>
         
-        <taskInstanceName>lucee-task</taskInstanceName>
-        <taskInstancePackage>org.lucee.cfml.tasks</taskInstancePackage>
-        <taskInstanceTemplatepath></taskInstanceTemplatepath>
-        <settingLocation></settingLocation>
-        <checkForChangeSettingInterval>0</checkForChangeSettingInterval>
+        <!-- <taskInstanceName>dk-task</taskInstanceName> -->
+        <!-- <taskInstancePackage>distrocore.tasks</taskInstancePackage> -->
+        <!-- <taskInstanceTemplatepath></taskInstanceTemplatepath> -->
+        <!-- <settingLocation>queues</settingLocation> -->
+        <!-- <checkForChangeSettingInterval>10</checkForChangeSettingInterval> -->
         <luceeCoreVersion>5.2.2.43-SNAPSHOT</luceeCoreVersion>
-        <releaseType>server</releaseType>
+        <releaseType>all</releaseType>
         <label>Tasks Extension</label>
         <release.url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</release.url>
         <snapshot.url>https://oss.sonatype.org/content/repositories/snapshots/</snapshot.url>
