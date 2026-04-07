@@ -4,7 +4,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>org.lucee</groupId>
     <artifactId>tasks-extension</artifactId>
-    <version>1.1.0.0-RC</version>
+    <version>1.1.0.1-RC</version>
     <packaging>pom</packaging>
     <name>Tasks Extension</name>
 
@@ -12,7 +12,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>11</maven.compiler.source>
         <maven.compiler.target>11</maven.compiler.target>
-        <id>0EDF8686-BDC8-442B-B4EFE093EA6CC0C4</id>
+        <id>947C02B0-7AE4-4054-938A8E059DD7625A</id>
         <bundlename>org.lucee.tasks.extension</bundlename>
         
         <!-- <taskInstanceName>dk-task</taskInstanceName> -->
