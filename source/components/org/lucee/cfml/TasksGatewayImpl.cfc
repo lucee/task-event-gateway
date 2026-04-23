@@ -58,7 +58,7 @@ component {
             variables.checkForChangeSettingInterval=tmp>0?tmp*1000:0;
 
             // active
-            var tmp = readSystemPropOrEnvVar("tasks.event.gateway.activator", "com.distrokid.tasks.Activator");
+            var tmp = readSystemPropOrEnvVar("tasks.event.gateway.activator", "org.lucee.cfml.tasks.Activator");
             if(!isNull(tmp) && !isEmpty(tmp)) {
                 log text="Loading Activator: #tmp#" type="info" log=logName;
                 try {
