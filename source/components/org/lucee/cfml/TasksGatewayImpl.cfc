@@ -642,9 +642,24 @@ component {
                 el.id=hash(fullName,"quick");
                 try {
                     inspectTemplates();}catch(e) {pagePoolClear();} // older Lucee version do not support inspectTemplates...
-                    local.cfc=isSimpleValue(rawData)?createObject("component",el.name):new TaskForScheduler(el.name,rawData.properties); // we do here not new to avoid the init method
-                    if(!isSimpleValue(rawData))el.properties=rawData.properties;
-                    el.meta=getMetadata(cfc);
+                    if(isSimpleValue(rawData)) {
+                        el.meta=getComponentMetadata(el.name);
+                        if(el.meta.abstract?:false) {
+                            // we do this so this component get not get checked all the time 
+                            el.type="other";
+                            continue;
+                        }
+                        local.cfc=createObject("component",el.name); // we do here not new to avoid the init method
+                    }
+                    else {
+                        local.cfc=new TaskForScheduler(el.name,rawData.properties);
+                        el.properties=rawData.properties;
+                    }
+                    
+                    if(isNull(el.meta)) {
+                        el.meta=getMetadata(cfc);
+                    }
+                    
                     // it is allowed to have none task/listener in the package, but they simply get ignored
                     
                     if(IsInstanceOf(cfc, "org.lucee.cfml.Task")) {
