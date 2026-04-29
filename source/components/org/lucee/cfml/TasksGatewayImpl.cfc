@@ -4,17 +4,17 @@ component {
     variables.controllerInterval=1000;// interval in ms of the controller thread
     variables.stopInterval=10;
     variables.checkForChangeInterval=10000;
+    variables.owner=this; // making owner global
     variables.NL="
 ";
 	public void function init(string id, struct config, component listener) { 
         variables.id=arguments.id;
         try {
             // log
-            variables.logName=config.logName?:"";
+            variables.logName=trim(config.logName?:"");
             if(isEmpty(trim(variables.logName)))variables.logName=readSystemPropOrEnvVar("tasks.event.gateway.log", "application");
 
-
-            log text="Tasks Event Gateway init" type="info" log=logName;
+            log("Tasks Event Gateway init");
             variables.config=config;
             // package
             variables.package=config.package?:"";
@@ -60,35 +60,33 @@ component {
             // active
             var tmp = readSystemPropOrEnvVar("tasks.event.gateway.activator", "org.lucee.cfml.tasks.Activator");
             if(!isNull(tmp) && !isEmpty(tmp)) {
-                log text="Loading Activator: #tmp#" type="info" log=logName;
+                log("Loading Activator: #tmp#");
                 try {
                     variables.activator=createObject("component", tmp);
                 }
                 catch(e) {
-                    log exception=e type="error" log=logName;
+                    log("Tasks Event Gateway failed in init function","error",e);
                 }
             }
             else {
-                log text="No Activator set" type="info" log=logName;
+                log("No Activator set");
             }
             if(isNull(variables.activator)) {
-                log text="failed to load activator, using instead simple struct collection always returning true" type="warn" log=logName;
+                log("failed to load activator, using instead simple struct collection always returning true","warn");
                 variables.activator={active:function (){return true;}};
             }
 
-            log text="Task Event Gateway init config: "&serialize(config) type="info" log=logName;
+            log("Task Event Gateway init config: "&serialize(config));
         }
         catch(e){
-            log text="Tasks Event Gateway failed in init function" exception="#e#" type="error" log=logName;
+            log("Tasks Event Gateway failed in init function","error",e);
         }
 		
 	}
 
 	public void function start() {
         try {
-			log text="Tasks Event Gateway starting" type="info" log=logName;
-            
-            
+			log("Tasks Event Gateway starting");
             
             // just in case Start get triggered without stop before
             if(!isNull(variables.globalSwitch) && variables.globalSwitch.enabled)
@@ -104,27 +102,27 @@ component {
                 sleep(5);
             }
             if(getState()=="running")
-                log text="Tasks Event Gateway sucessfully started" type="info" log=logName;
+                log("Tasks Event Gateway sucessfully started");
             else {
                 if (structKeyExists(variables, "activator") && !variables.activator.active()) {
-                    log text="The Tasks Event Gateway has stopped because the Activator is inactive." type="info" log=logName;
+                    log("The Tasks Event Gateway has stopped because the Activator is inactive.");
                 } 
                 else {
-                    log text="The Tasks Event Gateway failed to start due to an unknown issue. Please check the logs and configuration for further details." type="error" log=logName;
+                    log("The Tasks Event Gateway failed to start due to an unknown issue. Please check the logs and configuration for further details.","error");
                 }
                 
             }
         }
         catch(local.e){
 			variables._state="failed";
-			log text="Tasks Event Gateway failed in start function" exception=e type="error" log=logName;
+			log("Tasks Event Gateway failed in start function","error", e);
         }
 	}
 
 	public void function stop() {
-        log text="Tasks Event Gateway stopping" type="info" log=logName;
+        log("Tasks Event Gateway stopping");
         if(getState()!="running") {
-            log text="Tasks Event Gateway could not stop, state was not running" type="error" log=logName;
+            log("Tasks Event Gateway could not stop, state was not running","error");
             return;
         }
         // TODO notify controller
@@ -133,7 +131,7 @@ component {
             variables.globalSwitch.enabled=false;
 			
             // wait for the runner to stop by itself
-            log text="Tasks Event Gateway stopping: check for stopped" type="debug" log=logName;
+            log("Tasks Event Gateway stopping: check for stopped","debug");
             var countDown=600;
             while(--countDown>0) {
                 if(getState()=="stopped") break;
@@ -144,13 +142,13 @@ component {
         }
         catch(local.e){
 			variables._state="failed";
-			log text="Tasks Event Gateway failed in stop function" exception="#e#" type="error" log=logName;
+			log("Tasks Event Gateway failed in stop function","error",e);
         }
 	}
 
 
 	public void function restart() {
-        log text="Tasks Event Gateway restarting" type="info" log=logName;
+        log("Tasks Event Gateway restarting");
 			
         if(variables._state EQ "running") stop(); 
 		start();
@@ -290,24 +288,24 @@ component {
             var cfcs={};
             var tasks={};
             var listeners={};
-            log text="Tasks Event Gateway failed loading the Tasks" exception=e type="error" log=logName;
+            log("Tasks Event Gateway failed loading the Tasks","error",e);
         }
         variables._tasks=local.tasks;
 
         // starting the controller (this task only check for changes with the Tasks defined)
         thread  name=controllerName controllerName=controllerName instances=instances owner=this 
-                engine=engine logName=logName cfcs=cfcs tasks=tasks listeners=listeners globalSwitch=globalSwitch activator=activator
+                engine=engine cfcs=cfcs tasks=tasks listeners=listeners globalSwitch=globalSwitch activator=activator
                 prefix=prefix gatewayId=variables.id  checkForChangeInterval=variables.checkForChangeInterval  settingLocation=variables.settingLocation 
                 checkForChangeSettingInterval=variables.checkForChangeSettingInterval {
-            log text="Tasks Event Gateway enter controller" type="info" log=logName;
-			
+            owner.log("Tasks Event Gateway enter controller");
+            
             owner.setState("running");
             var first=true;
             var lastCheck=getTickCount();
             var lastCheckSettings=getTickCount();
             while(globalSwitch.enabled && engine.isRunning() && activator.active()) {
 
-                log text="Tasks Event Gateway running the controller, ATM we have #len(instances)# task instances" type="debug" log=logName;
+                owner.log("Tasks Event Gateway running the controller, ATM we have #len(instances)# task instances","debug");
                 try {
                     
                     if(first) {
@@ -320,7 +318,7 @@ component {
                                 }
                                 // cache maybe not available
                                 catch(e) {
-                                    log text="Tasks Event Gateway in controller" exception=e type="error" log=logName;
+                                    owner.log("Tasks Event Gateway in controller","error",e);
                                     sleep(5000); // done do avoid fast spinning in case of an error TODO move to config
                                 }
                             }
@@ -342,12 +340,12 @@ component {
                                     if(instance.task.name==cfcName) {
                                         instance.enabled=false; 
                                         structDelete(instances, instanceHash,false);
-                                        log text="Tasks Event Gateway removes task instance [#el.name#:#instance.index#]" type="info" log=logName;
+                                        owner.log("Tasks Event Gateway removes task instance [#el.name#:#instance.index#]");
                                     }
                                 }
                                 if(el.status=="deleted") {
                                     structDelete(tasks, cfcName,false);
-                                    log text="Tasks Event Gateway deletes task [#el.name#]" type="info" log=logName;
+                                    owner.log("Tasks Event Gateway deletes task [#el.name#]");
                                 }
                             }
                         }
@@ -360,7 +358,7 @@ component {
                                 structDelete(instances, instanceHash,false);
                                 instance.task.status="failed";
                                 if(!(instance.task.paused?:false)){
-                                    log text="Tasks Event Gateway instance failed for an unknown reason and will be removed from pool, task instance [#el.name#:#instance.index#]" type="error" log=logName;
+                                    owner.log("Tasks Event Gateway instance failed for an unknown reason and will be removed from pool, task instance [#el.name#:#instance.index#]","error");
                                 }
                             }
                         }
@@ -369,7 +367,7 @@ component {
                         loop struct=tasks index="cfcName" item="local.el" {
                             if((el.status=="new" || el.status=="modified" || el.status=="failed")) {
                                 owner.startTasks(engine,el,instances,listeners,globalSwitch,activator,prefix);
-                                log text="Tasks Event Gateway starts task instance(s) [#el.name#]" type="info" log=logName;
+                                owner.log("Tasks Event Gateway starts task instance(s) [#el.name#]");
                                 el.status="existing";
                             }
                         }
@@ -380,7 +378,7 @@ component {
                     // do have other servers changed the pause settings?
                     if(!isEmpty(settingLocation) && variables.checkForChangeSettingInterval>0 && lastCheckSettings+variables.checkForChangeSettingInterval<getTickCount()) {
                         var threadName="t#createUniqueID()#";
-                        thread name=threadName gatewayId=(gatewayId?:"") owner=owner tasks=tasks logName=logName settingLocation=settingLocation {
+                        thread name=threadName gatewayId=(gatewayId?:"") owner=owner tasks=tasks settingLocation=settingLocation {
                             try {
                                 loop struct=tasks index="cfcName" item="local.el" {
                                     var paused=owner.getPause(settingLocation, gatewayId, (el.id?:""));
@@ -389,7 +387,7 @@ component {
                             }
                             // cache maybe not available
                             catch(e) {
-                                log text="Tasks Event Gateway in controller" exception=e type="error" log=logName;
+                                owner.log("Tasks Event Gateway in controller","error",e);
                             }
                         }
                         // because we don't need the thread reference we simply remove it
@@ -398,8 +396,7 @@ component {
                     }
                 }
                 catch(e) {
-                    systemOutput(e,1,1);
-                    log text="Tasks Event Gateway in controller" exception=e type="error" log=logName;
+                    owner.log("Tasks Event Gateway in controller","error",e);
                     sleep(5000); // done do avoid fast spinning in case of an error TODO move to config
                 }
                 sleep(variables.controllerInterval); // TODO use notify in addition to end it
@@ -408,7 +405,7 @@ component {
             var start=getTickCount();
             var max=1200;
             try {
-                log text="Tasks Event Gateway checking for running task instance(s) to stop (#len(instances)#)" type="debug" log=logName;
+                owner.log("Tasks Event Gateway checking for running task instance(s) to stop (#len(instances)#)","debug");
                 while(--max>0) {
 
                     // get all active task names
@@ -419,15 +416,15 @@ component {
                         // possible it is already gone in meantime
                         var instance=instances[name]?:"";
                         if(isSimpleValue(instance)) {
-                            log text="Tasks Event Gateway did stop on it's own [#instance.task.name#:#instance.index?:"<none>"#]" type="info" log=logName;
+                            owner.log("Tasks Event Gateway did stop on it's own [#instance.task.name#:#instance.index?:"<none>"#]");
                             continue;
                         }
                         // grace period is over
                         if(instance.task.waitForStop+start<getTickCount()) {
-                            log text="Tasks Event Gateway reached grace period for task [#instance.task.name#]" type="info" log=logName;
+                            owner.log("Tasks Event Gateway reached grace period for task [#instance.task.name#]");
                             if(instance.task.forceStop) {
                                 try {
-                                    log text="Tasks Event Gateway forces termination of task instance [#instance.task.name#:#instance.index?:"<none>"#]" type="info" log=logName;
+                                    owner.log("Tasks Event Gateway forces termination of task instance [#instance.task.name#:#instance.index?:"<none>"#]");
                                     thread action="terminate" name=name;
                                 }
                                 catch(e) {
@@ -439,11 +436,11 @@ component {
                     }
                     sleep(100);
                 }
-                log text="Tasks Event Gateway has stopped all task instances" type="info" log=logName;
+                owner.log("Tasks Event Gateway has stopped all task instances");
                                     
             }
             catch(e) {
-                log text="Tasks Event Gateway failed to finalize the controller" exception=e type="error" log=logName;
+                owner.log("Tasks Event Gateway failed to finalize the controller");
             }
             finally {
                 owner.setState("stopped");
@@ -460,18 +457,18 @@ component {
             try{inspectTemplates();}catch(e) {pagePoolClear();} // older Lucee version do not support inspectTemplates...
             // create the instance itself
             try{
-                log text="Tasks Event Gateway instantiate task [#instance.task.name#:#instance.index#]" type="info" log=logName;
+                log("Tasks Event Gateway instantiate task [#instance.task.name#:#instance.index#]");
                 if(!isNull(task.properties)) {
                     instance.cfc=new TaskForScheduler(task.name,task.properties);
                 }
                 else instance.cfc=new "#task.name#"();
             }
             catch(e) {
-                log text="Tasks Event Gateway failed to construct [#instance.task.name#]" exception=e type="error" log=logName;
+                log("Tasks Event Gateway failed to construct [#instance.task.name#]","error",e);
             }
 
-            thread name=instanceName owner=this engine=engine logName=logName globalSwitch=globalSwitch activator=activator listeners=listeners instance=instance instances=instances {
-                log text="Tasks Event Gateway start task instance [#instance.task.name#:#instance.index#]" type="info" log=logName;
+            thread name=instanceName owner=this engine=engine globalSwitch=globalSwitch activator=activator listeners=listeners instance=instance instances=instances {
+                owner.log("Tasks Event Gateway start task instance [#instance.task.name#:#instance.index#]");
                 try {
                     while(instance.enabled && !(instance.task.paused?:false) && globalSwitch.enabled && engine.isRunning() && activator.active()) {
                         setting requesttimeout="100000000000";// 3170 years
@@ -495,17 +492,17 @@ component {
                                                 listener.instance.onExecutionStart(instance.cfc,instance.task.name,instance.name,instance.iterations,instance.errors,instance.lastExecutionTime?:nullValue(),instance.lastExecutionDate?:nullValue(),instance.lastError?:nullValue());
                                             } 
                                             catch(ee){
-                                                log text="Tasks Event Gateway failed to execute listener instance" exception=ee type="error" log=logName;
+                                                owner.log("Tasks Event Gateway failed to execute listener instance","error",ee);
                                             }
                                         }
                                     }
                                 } 
                                 catch(e){
-                                    log text="Tasks Event Gateway failed to execute listener instance" exception=e type="error" log=logName;
+                                    owner.log("Tasks Event Gateway failed to execute listener instance","error",e);
                                 }
                             }
                             instance.cfc.invoke(instance.name,instance.iterations,instance.errors,instance.lastExecutionTime?:nullValue(),instance.lastExecutionDate?:nullValue(),instance.lastError?:nullValue());
-                            log text="Tasks Event Gateway executes task instance [#instance.task.name#:#instance.index#] sucessfully" type="debug" log=logName;
+                            owner.log("Tasks Event Gateway executes task instance [#instance.task.name#:#instance.index#] sucessfully","debug");
                             
                             // listener after
                             if(len(listeners)) {
@@ -516,13 +513,13 @@ component {
                                                 listener.instance.onExecutionEnd(instance.cfc,instance.task.name,instance.name,instance.iterations,instance.errors,instance.lastExecutionTime?:nullValue(),instance.lastExecutionDate?:nullValue(),instance.lastError?:nullValue());
                                             } 
                                             catch(ee){
-                                                log text="Tasks Event Gateway failed to execute listener instance" exception=ee type="error" log=logName;
+                                                owner.log("Tasks Event Gateway failed to execute listener instance","error",ee);
                                             }
                                         }
                                     }
                                 } 
                                 catch(e){
-                                    log text="Tasks Event Gateway failed to execute listener instance" exception=e type="error" log=logName;
+                                    owner.log("Tasks Event Gateway failed to execute listener instance","error",e);
                                 }
                             }
                             instance.lastExecutionTime=getTickCount()-startTime;
@@ -544,18 +541,18 @@ component {
                                                 listener.instance.onError(e,instance.cfc,instance.task.name,instance.name,instance.iterations,instance.errors,instance.lastExecutionTime?:nullValue(),instance.lastExecutionDate?:nullValue(),instance.lastError?:nullValue());
                                             } 
                                             catch(eee){
-                                                log text="Tasks Event Gateway failed to execute listener instance" exception=eee type="error" log=logName;
+                                                owner.log("Tasks Event Gateway failed to execute listener instance","error",eee);
                                             }
                                         }
                                     }
                                 } 
                                 catch(ee){
-                                    log text="Tasks Event Gateway failed to execute listener instance" exception=ee type="error" log=logName;
+                                    owner.log("Tasks Event Gateway failed to execute listener instance","error",ee);
                                 }
                             }
 
-                            log text="Tasks Event Gateway failed to execute task instance [#instance.task.name#]; start:#instance.startDate#; iterations:#instance.iterations#; errors: #instance.errors#; last-exe:#instance.lastExecutionDate?:""# " exception=e type="error" log=logName;
-
+                            owner.log("Tasks Event Gateway failed to execute task instance [#instance.task.name#]; start:#instance.startDate#; iterations:#instance.iterations#; errors: #instance.errors#; last-exe:#instance.lastExecutionDate?:""# ","error",e);
+                            
                             // sleep after error TODO notify when stop
                             if(instance.task.sleepAfterOnError>0 && (instance.enabled && globalSwitch.enabled && engine.isRunning() && activator.active())) sleep(instance.task.sleepAfterOnError);
                             //structDelete(instance, "cfc",false); // remove that instance so a new one is created
@@ -573,12 +570,12 @@ component {
                 finally {
                     // do we end even we should not, because of cfabort for example 
                     if(engine.isRunning() && globalSwitch.enabled && instance.enabled  && activator.active()) {
-                        log text="Tasks Event Gateway stops task instance [#instance.task.name#:#instance.index#]; engine-switch:#engine.isRunning()#; global-switch:#globalSwitch.enabled#;task-switch:#(instance.task.paused?:false)#;instance-switch:#instance.enabled#;activator:#activator.active()#;" type="info" log=logName;
+                        owner.log("Tasks Event Gateway stops task instance [#instance.task.name#:#instance.index#]; engine-switch:#engine.isRunning()#; global-switch:#globalSwitch.enabled#;task-switch:#(instance.task.paused?:false)#;instance-switch:#instance.enabled#;activator:#activator.active()#;");
                         instance.stopped=true;
                     }
                     else structDelete(instances, instance.name,false);
                     
-                    log text="Tasks Event Gateway stops task instance [#instance.task.name#:#instance.index#]; engine-switch:#engine.isRunning()#; global-switch:#globalSwitch.enabled#;task-switch:#(instance.task.paused?:false)#;instance-switch:#instance.enabled#;activator:#activator.active()#;" type="info" log=logName;
+                    owner.log("Tasks Event Gateway stops task instance [#instance.task.name#:#instance.index#]; engine-switch:#engine.isRunning()#; global-switch:#globalSwitch.enabled#;task-switch:#(instance.task.paused?:false)#;instance-switch:#instance.enabled#;activator:#activator.active()#;");
                 }
             }
         }
@@ -586,7 +583,7 @@ component {
 
     public function loadCFCs(existing) {
         var inital=isNull(existing);
-        log text="Tasks Event Gateway #inital?"loads all the tasks":"check if the task have changed"#" type="info" log=logName;
+        log("Tasks Event Gateway #inital?"loads all the tasks":"check if the task have changed"#");
         
         var data={};
         var rawDatas=[];
@@ -626,7 +623,7 @@ component {
                         
                         // file has not changed
                         if(ex.getTime()==atm.getTime()) {
-                            log text="Tasks Event Gateway could not detected a change in component [#fullName#]" type="debug" log=logName;
+                            log("Tasks Event Gateway could not detected a change in component [#fullName#]","debug");
                             var el=duplicate(existing[fullName]);
                             el.status="new";
                             data[el.name]=el;
@@ -635,7 +632,7 @@ component {
                     }
                 }
             
-                log text="Tasks Event Gateway loads a new component/template [#fullName#]" type="info" log=logName;
+                log("Tasks Event Gateway loads a new component/template [#fullName#]");
                 var el={};
                 el.status="new";
                 el.name=fullName;
@@ -721,12 +718,12 @@ component {
                     data[el.name]=el;
                 }
             catch(e) {
-                log text="Tasks Event Gateway failed to load task or listener" exception=e type="error" log=logName;
+                log("Tasks Event Gateway failed to load task or listener","error",e);
             }
         }
         // inital call
         if(inital) {
-            log text="Tasks Event Gateway has #len(data)# task(s) loaded" type="debug" log=logName;
+            log("Tasks Event Gateway has #len(data)# task(s) loaded","debug");
             return data;
         }
         // set existing, deleted, modified
@@ -735,12 +732,12 @@ component {
             if(!structKeyExists(data,cfcName)) {
                 if(el.type=="listener") structDelete(existing, cfcName);
                 else el.status="deleted";
-                log text="Tasks Event Gateway marked task [#el.name#] as deleted" type="debug" log=logName;
+                log("Tasks Event Gateway marked task [#el.name#] as deleted","debug");
             }
             else if (el.lastModified!=data[cfcName].lastModified) {
                 existing[cfcName]=data[cfcName];
                 existing[cfcName].status="modified";
-                log text="Tasks Event Gateway marked task [#el.name#] as modified" type="debug" log=logName;
+                log("Tasks Event Gateway marked task [#el.name#] as modified","debug");
             }
         }
 
@@ -748,7 +745,7 @@ component {
         loop struct=data index="local.cfcName" item="local.el" {
             if(!structKeyExists(existing,cfcName)) {
                 existing[cfcName]=el;
-                log text="Tasks Event Gateway has detected a new task with name [#el.name#]" type="debug" log=logName;
+                log("Tasks Event Gateway has detected a new task with name [#el.name#]","debug");
             }
         }
         return existing;
@@ -896,6 +893,22 @@ component {
         structClear(existingData);
         loop struct=newData index="local.k" item="local.v" {
             existingData[k]=v;
+        }
+    }
+
+    private final function log(required string msg, string level="info", exception) {
+        
+        try {
+            if(isNull(exception)) {
+                log text=arguments.msg type=arguments.msg log=variables.logName;
+            }
+            else {
+                log text=arguments.msg type=arguments.msg exception=exception log=variables.logName;
+            }
+        }
+        catch(ex) {
+            systemOutput(arguments,1,1);
+            systemOutput(ex,1,1);
         }
     }
 }
