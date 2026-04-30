@@ -455,17 +455,7 @@ component {
             var instance={'name':instanceName,'index':index,'task':task,'startDate':now(),'iterations':0,'errors':0,'enabled':true};
             instances[instanceName]=instance;
             try{inspectTemplates();}catch(e) {pagePoolClear();} // older Lucee version do not support inspectTemplates...
-            // create the instance itself
-            try{
-                _log("instantiate task [#instance.task.name#:#instance.index#]");
-                if(!isNull(task.properties)) {
-                    instance.cfc=new TaskForScheduler(task.name,task.properties);
-                }
-                else instance.cfc=new "#task.name#"();
-            }
-            catch(e) {
-                _log("failed to construct [#instance.task.name#]","error",e);
-            }
+            
 
             thread name=instanceName owner=this engine=engine globalSwitch=globalSwitch activator=activator listeners=listeners instance=instance instances=instances {
                 owner._log("start task instance [#instance.task.name#:#instance.index#]");
@@ -478,6 +468,16 @@ component {
                             
                             // stopped in meantime?
                             if((!instance.enabled || (instance.task.paused?:false) || !globalSwitch.enabled || !engine.isRunning() || !activator.active())) break;
+
+                            // instantiate if not yet done
+                            if(!structKeyExists(instance, "cfc")) {
+                                owner._log("constructing task instance [#instance.task.name#:#instance.index#]");
+                                if(!isNull(instance.task.properties))
+                                    instance.cfc=new TaskForScheduler(instance.task.name, instance.task.properties);
+                                else
+                                    instance.cfc=new "#instance.task.name#"();
+                                owner._log("successfully constructed task instance [#instance.task.name#:#instance.index#]");
+                            }
 
                             // execute
                             var startDate=now();
