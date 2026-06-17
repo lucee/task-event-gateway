@@ -28,7 +28,7 @@ component extends="Gateway" {
     public function getDescription() {      return "A general purpose event gateway which will perform tasks based on components, the Task themself can define the rules for their execution." }
 
     public function getCfcPath() { 
-        pagePoolClear(); // this is a patch for a bug in Lucee, because Lucee follows the regular template cacheg rules for gateways, what is "once" by default.
+        inspectTemplates(); // this is a patch for a bug in Lucee, because Lucee follows the regular template cacheg rules for gateways, what is "once" by default.
         return "org.lucee.cfml.TasksGateway"; 
     }
 
