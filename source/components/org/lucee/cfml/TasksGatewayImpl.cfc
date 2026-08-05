@@ -318,8 +318,8 @@ component {
                                 }
                                 // cache maybe not available
                                 catch(e) {
+                                    owner.sleepFailsafe(5000); // avoid fast spinning in case of an error; recover before heavy log work TODO move to config
                                     owner._log("in controller","error",e);
-                                    sleep(5000); // done do avoid fast spinning in case of an error TODO move to config
                                 }
                             }
                             owner.startTasks(engine,el,instances,listeners,globalSwitch,activator,prefix);
@@ -396,10 +396,10 @@ component {
                     }
                 }
                 catch(e) {
+                    owner.sleepFailsafe(5000); // avoid fast spinning in case of an error; recover before heavy log work TODO move to config
                     owner._log("in controller","error",e);
-                    sleep(5000); // done do avoid fast spinning in case of an error TODO move to config
                 }
-                sleep(variables.controllerInterval); // TODO use notify in addition to end it
+                owner.sleepFailsafe(variables.controllerInterval); // TODO use notify in addition to end it
             }
             // wait for the tasks to end
             var start=getTickCount();
@@ -464,7 +464,7 @@ component {
                         setting requesttimeout="100000000000";// 3170 years
                         try {
                             // sleep before
-                            if(instance.task.sleepBefore>0) sleep(instance.task.sleepBefore);
+                            if(instance.task.sleepBefore>0) owner.sleepFailsafe(instance.task.sleepBefore);
                             
                             // stopped in meantime?
                             if((!instance.enabled || (instance.task.paused?:false) || !globalSwitch.enabled || !engine.isRunning() || !activator.active())) break;
@@ -527,12 +527,20 @@ component {
                             instance.lastExecutionDate=startDate;
 
                             // sleep after TODO notify when stop
-                            if(instance.task.sleepAfter>0 && (instance.enabled && globalSwitch.enabled && engine.isRunning() && activator.active())) sleep(instance.task.sleepAfter);
+                            if(instance.task.sleepAfter>0 && (instance.enabled && globalSwitch.enabled && engine.isRunning() && activator.active())) {
+                                owner.sleepFailsafe(instance.task.sleepAfter);
+                            }
                         }
                         catch(e) {
                             instance.errors++;
                             instance.lastError=e;
-                            
+
+                            // Under OOME, sleep first so the heap can recover before heavy
+                            // log/listener work. Sleep must not abort the recovery loop.
+                            if(instance.task.sleepAfterOnError>0 && (instance.enabled && globalSwitch.enabled && engine.isRunning() && activator.active())) {
+                                owner.sleepFailsafe(instance.task.sleepAfterOnError);
+                            }
+
                             if(len(listeners)) {
                                 try {
                                     loop struct=listeners index="local.name" item="local.listener" {
@@ -552,9 +560,6 @@ component {
                             }
 
                             owner._log("failed to execute task instance [#instance.task.name#]; start:#instance.startDate#; iterations:#instance.iterations#; errors: #instance.errors#; last-exe:#instance.lastExecutionDate?:""# ","error",e);
-                            
-                            // sleep after error TODO notify when stop
-                            if(instance.task.sleepAfterOnError>0 && (instance.enabled && globalSwitch.enabled && engine.isRunning() && activator.active())) sleep(instance.task.sleepAfterOnError);
                             //structDelete(instance, "cfc",false); // remove that instance so a new one is created
                         }
                         finally {
@@ -896,8 +901,24 @@ component {
         }
     }
 
+    /**
+     * Sleep that must never kill the caller thread (e.g. under OOME pressure).
+     *
+     * @duration milliseconds to sleep; values <= 0 are ignored
+     */
+    public void function sleepFailsafe(required numeric duration) {
+        if (arguments.duration <= 0) {
+            return;
+        }
+        try {
+            sleep(arguments.duration);
+        }
+        catch (any e) {
+            // intentionally ignore — sleepFailsafe must not propagate failures to the caller
+        }
+    }
+
     function _log(required string msg, string level="info", exception) {
-        
         try {
             if(isNull(exception)) {
                 log text="Tasks Event Gateway: "&arguments.msg type=arguments.level log=variables.logName;
@@ -907,8 +928,12 @@ component {
             }
         }
         catch(ex) {
-            systemOutput(arguments,1,1);
-            systemOutput(ex,1,1);
+            // Logging (especially with a full exception) can allocate and re-trip OOME.
+            try {
+                systemOutput(arguments,1,1);
+                systemOutput(ex,1,1);
+            }
+            catch (any ignore) {}
         }
     }
 }
