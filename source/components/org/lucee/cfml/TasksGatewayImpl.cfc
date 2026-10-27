@@ -4,6 +4,10 @@ component {
     variables.controllerInterval=1000;// interval in ms of the controller thread
     variables.stopInterval=10;
     variables.checkForChangeInterval=10000;
+    variables.checkForChangeBaseInterval=60000;
+    variables.lastBaseCheck=0;
+    // components that end the inheritance chain we track for changes (they are part of this extension or the core)
+    variables.CHAIN_STOP="org.lucee.cfml.Task,org.lucee.cfml.Listener,Component,lucee.Component,org.lucee.cfml.Component";
     variables.owner=this; // making owner global
     variables.NL="
 ";
@@ -45,6 +49,11 @@ component {
             var tmp=int(config.checkForChangeNoMatchInterval?:-1);
             if(tmp==-1) tmp = int(readSystemPropOrEnvVar("tasks.event.gateway.checkForChangeNoMatchInterval", 60));
             variables.checkForChangeNoMatchInterval=tmp*1000;
+            
+            // intervall base components/interfaces (0 = disabled)
+            var tmp=int(config.checkForChangeBaseInterval?:-1);
+            if(tmp==-1) tmp = int(readSystemPropOrEnvVar("tasks.event.gateway.checkForChangeBaseInterval", 60));
+            variables.checkForChangeBaseInterval=tmp>0?tmp*1000:0;
             
 
             // setting location (ATM only cache is supported)
@@ -177,6 +186,7 @@ component {
                 ,'controllerInterval':variables.controllerInterval
                 ,'stopInterval':variables.stopInterval
                 ,'checkForChangeInterval':variables.checkForChangeInterval
+                ,'checkForChangeBaseInterval':variables.checkForChangeBaseInterval
                 ,'checkForChangeSettingInterval':variables.checkForChangeSettingInterval?:0
                 ,'tasks':getTaskInfo()
             });
@@ -347,6 +357,14 @@ component {
                                     structDelete(tasks, cfcName,false);
                                     owner._log("deletes task [#el.name#]");
                                 }
+                            }
+                        }
+                        // a component that was a task before but is no longer one (for example because it became abstract)
+                        loop struct=instances index="local.instanceHash" item="local.instance" {
+                            if(!structKeyExists(tasks, instance.task.name)) {
+                                instance.enabled=false; 
+                                structDelete(instances, instanceHash,false);
+                                owner._log("removes task instance [#instance.task.name#:#instance.index#], because the component is no longer a task");
                             }
                         }
 
@@ -592,6 +610,18 @@ component {
         
         var data={};
         var rawDatas=[];
+        var fileCache={}; // path -> lastModified, so every file is only checked once per cycle (a shared base component costs one check)
+        
+        // base components/interfaces are not checked with every cycle, they have their own interval
+        var checkBase=false;
+        if(inital) {
+            variables.lastBaseCheck=getTickCount();
+        }
+        else if(variables.checkForChangeBaseInterval>0 && variables.lastBaseCheck+variables.checkForChangeBaseInterval<=getTickCount()) {
+            checkBase=true;
+            variables.lastBaseCheck=getTickCount();
+            _log("check base components/interfaces of the tasks for changes","debug");
+        }
         try{
             loop array=ComponentListPackage(variables.package) item="local.cfcName" {
                 arrayAppend(rawDatas, cfcName);
@@ -621,34 +651,38 @@ component {
             try {
                 // when simple value it is a component name otherwise template info
                 var fullName=isSimpleValue(rawData)?(variables.package&"."&rawData):rawData.template;
-                if(!inital) {
-                    if(structKeyExists(existing, fullName)){
-                        var ex=existing[fullName].lastModified;
-                        var atm=fileInfo(existing[fullName].path).dateLastModified;
-                        
-                        // file has not changed
-                        if(ex.getTime()==atm.getTime()) {
-                            _log("could not detected a change in component [#fullName#]","debug");
-                            var el=duplicate(existing[fullName]);
-                            el.status="new";
-                            data[el.name]=el;
-                            continue;
-                        }
+                var reloadReason="";
+                if(!inital && structKeyExists(existing, fullName)) {
+                    reloadReason=getChangeReason(existing[fullName], fileCache, checkBase);
+                    // nothing has changed
+                    if(isEmpty(reloadReason)) {
+                        _log("could not detected a change in component [#fullName#]","debug");
+                        var el=duplicate(existing[fullName]);
+                        el.status="new";
+                        data[el.name]=el;
+                        continue;
                     }
+                    _log("reloads component/template [#fullName#], because #reloadReason#");
                 }
-            
-                _log("loads a new component/template [#fullName#]");
+                else {
+                    _log("loads a new component/template [#fullName#]");
+                }
                 var el={};
                 el.status="new";
+                el.reloadReason=reloadReason;
                 el.name=fullName;
                 el.id=hash(fullName,"quick");
                 try {
                     inspectTemplates();}catch(e) {pagePoolClear();} // older Lucee version do not support inspectTemplates...
                     if(isSimpleValue(rawData)) {
                         el.meta=getComponentMetadata(el.name);
-                        if(el.meta.abstract?:false) {
-                            // we do this so this component get not get checked all the time 
+                        if((el.meta.abstract?:false) || (el.meta.type?:"")=="interface") {
+                            // abstract components and interfaces (for example a base component of tasks) are no tasks themself,
+                            // we store them as "other", so they get only checked for changes like any other component
+                            // and not loaded again with every cycle. a change on them is detected by the tasks extending them.
                             el.type="other";
+                            setFileInfo(el, el.meta.path, fileCache);
+                            data[el.name]=el;
                             continue;
                         }
                         local.cfc=createObject("component",el.name); // we do here not new to avoid the init method
@@ -672,16 +706,25 @@ component {
                         el.instance=new "#el.name#"();
                     }
                     else {
-                        // we do this so this component get not get checked all the time 
+                        // we store them as "other", so this component get not get loaded again with every cycle
                         el.type="other";
+                        setFileInfo(el, el.meta.path, fileCache);
+                        data[el.name]=el;
                         continue;
                     }
 
                     // file info
                     el.template=fullname;
-                    el.path=isSimpleValue(rawData)?el.meta.path:fullname;
-                    el.fileInfo=fileInfo(el.path);
-                    el.lastModified=el.fileInfo.dateLastModified;
+                    setFileInfo(el, isSimpleValue(rawData)?el.meta.path:fullname, fileCache);
+
+                    // base components and interfaces (not for templates, they all share the same base component of this extension)
+                    if(isSimpleValue(rawData)) {
+                        el.chain=collectChain(el.meta, el.path, fileCache);
+                    }
+                    else {
+                        el.chain={};
+                    }
+                    el.chainHash=createChainHash(el.chain);
 
                     if(el.type=="task") {
                         // sleep before
@@ -735,14 +778,14 @@ component {
         loop struct=existing index="local.cfcName" item="local.el" {
             el.status="existing";
             if(!structKeyExists(data,cfcName)) {
-                if(el.type=="listener") structDelete(existing, cfcName);
+                if(el.type=="listener" || el.type=="other") structDelete(existing, cfcName);
                 else el.status="deleted";
-                _log("marked task [#el.name#] as deleted","debug");
+                _log("marked #el.type# [#el.name#] as deleted","debug");
             }
-            else if (el.lastModified!=data[cfcName].lastModified) {
+            else if (el.lastModified!=data[cfcName].lastModified || (el.chainHash?:"")!=(data[cfcName].chainHash?:"")) {
                 existing[cfcName]=data[cfcName];
                 existing[cfcName].status="modified";
-                _log("marked task [#el.name#] as modified","debug");
+                _log("marked #el.type# [#el.name#] as modified#len(data[cfcName].reloadReason?:"")?", because "&data[cfcName].reloadReason:""#","debug");
             }
         }
 
@@ -754,6 +797,97 @@ component {
             }
         }
         return existing;
+    }
+
+    /**
+     * checks if a component/template that was loaded before has changed and needs to be loaded again.
+     * the own file is checked always, the base components and interfaces (extends/implements) only when "checkBase" is true.
+     * files are compared with "!=" and not "newer", so a rollback to an older version is detected as well.
+     * 
+     * @el the entry of the component as stored by loadCFCs
+     * @fileCache path -> lastModified (ms) cache shared within one check cycle
+     * @checkBase also check the base components and interfaces
+     * @return empty string when nothing has changed, otherwise the reason why the component needs to be reloaded
+     */
+    public string function getChangeReason(required struct el, required struct fileCache, boolean checkBase=true) {
+        // own file
+        var current=getLastModified(el.path, fileCache);
+        if(current==-1) return "the file [#el.path#] of [#el.name#] no longer exists";
+        if(current!=el.lastModified.getTime()) return "the file [#el.path#] of [#el.name#] has changed";
+        
+        // base components and interfaces
+        if(arguments.checkBase && structKeyExists(el, "chain")) {
+            loop struct=el.chain index="local.path" item="local.lastModified" {
+                current=getLastModified(path, fileCache);
+                if(current==-1) return "the base component/interface [#path#] of [#el.name#] no longer exists";
+                if(current!=lastModified) return "the base component/interface [#path#] of [#el.name#] has changed";
+            }
+        }
+        return "";
+    }
+
+    /**
+     * collects all base components (extends) and interfaces (implements) of a component, 
+     * with the last modified date of the file (in ms).
+     * stops at the base components of this extension and the root component, ignores files that do not exist (archives).
+     */
+    private struct function collectChain(required struct meta, required string ownPath, required struct fileCache, struct chain={}) {
+        var parents=[];
+        // extends: for components it is a single metadata struct, for interfaces a struct of metadata structs
+        if(isStruct(meta.extends?:"")) {
+            if(structKeyExists(meta.extends, "path")) arrayAppend(parents, meta.extends);
+            else loop struct=meta.extends index="local.k" item="local.v" { if(isStruct(v)) arrayAppend(parents, v); }
+        }
+        // implements
+        if(isStruct(meta.implements?:"")) {
+            loop struct=meta.implements index="local.k" item="local.v" { if(isStruct(v)) arrayAppend(parents, v); }
+        }
+        else if(isArray(meta.implements?:"")) {
+            loop array=meta.implements item="local.v" { if(isStruct(v)) arrayAppend(parents, v); }
+        }
+
+        loop array=parents item="local.parent" {
+            if(listFindNoCase(variables.CHAIN_STOP, parent.fullname?:(parent.name?:""))) continue;
+            var path=parent.path?:"";
+            if(isEmpty(path) || path==arguments.ownPath || structKeyExists(chain, path)) continue;
+            var lastModified=getLastModified(path, fileCache);
+            if(lastModified==-1) continue; // for example a component inside an archive
+            chain[path]=lastModified;
+            collectChain(parent, arguments.ownPath, fileCache, chain);
+        }
+        return chain;
+    }
+
+    private string function createChainHash(required struct chain) {
+        if(structIsEmpty(chain)) return "";
+        var list=[];
+        loop array=structKeyArray(chain).sort("textnocase") item="local.path" {
+            arrayAppend(list, path&":"&chain[path]);
+        }
+        return hash(arrayToList(list, NL), "quick");
+    }
+
+    /**
+     * returns the last modified date of a file in ms or -1 if the file does not exist; every file is only checked once per cycle
+     */
+    private numeric function getLastModified(required string path, required struct fileCache) {
+        if(structKeyExists(fileCache, path)) return fileCache[path];
+        var lastModified=-1;
+        try {
+            if(fileExists(path)) lastModified=fileInfo(path).dateLastModified.getTime();
+        }
+        catch(e) {
+            _log("could not read the file info of [#path#]","debug",e);
+        }
+        fileCache[path]=lastModified;
+        return lastModified;
+    }
+
+    private void function setFileInfo(required struct el, required string path, required struct fileCache) {
+        el.path=arguments.path;
+        el.fileInfo=fileInfo(el.path);
+        el.lastModified=el.fileInfo.dateLastModified;
+        fileCache[el.path]=el.lastModified.getTime();
     }
 
     public function getEngine() {
