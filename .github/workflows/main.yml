@@ -37,7 +37,9 @@ jobs:
           path: ~/work/_actions/lucee/script-runner/main/lucee-download-cache
           key: lucee-downloads
 
+      # secrets are not available for pull requests from forks
       - name: Import GPG key
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         run: |
           echo "$GPG_PRIVATE_KEY" | base64 --decode | gpg --batch --import
         env:
@@ -94,7 +96,8 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     needs: [build-and-test]
-    if: always() && needs.build-and-test.result == 'success'
+    # no deploy for pull requests from forks, they have no access to the secrets
+    if: always() && needs.build-and-test.result == 'success' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
