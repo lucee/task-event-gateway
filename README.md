@@ -64,6 +64,7 @@ To register a gateway instance via `.CFConfig.json`, add an entry under the `gat
         "templatePathRecursive": true,
         "checkForChangeInterval": 10,
         "checkForChangeNoMatchInterval": 60,
+        "checkForChangeBaseInterval": 60,
         "settingLocation": "",
         "checkForChangeSettingInterval": 0,
         "logName": "scheduler"
@@ -84,6 +85,7 @@ The `custom` fields control TEG behaviour:
 | `templatePath` | Absolute path, mapping, or webroot-relative path to a folder containing `.cfm`-based tasks |
 | `templatePathRecursive` | When `true` (default), scan `templatePath` recursively for `.cfm` task templates |
 | `checkForChangeInterval` | Seconds between file-change checks for components/templates already identified as tasks. Higher values reduce I/O but slow detection of code changes |
+| `checkForChangeBaseInterval` | Seconds between checks of the base components (`extends`) and interfaces (`implements`) of already loaded tasks. A change reloads every task that extends or implements the changed component. Runs as part of the regular check, so it is rounded up to a multiple of `checkForChangeInterval` (`0` = disabled, default `60`) |
 | `checkForChangeNoMatchInterval` | Seconds between checks for files that were **not** tasks on the previous scan. Keep this higher when the folder contains many non-task files |
 | `settingLocation` | Cache definition name used to persist task settings (e.g. paused state) across server instances. Leave empty if not needed |
 | `checkForChangeSettingInterval` | Seconds between checks for setting changes in `settingLocation`. When server A pauses a task, this is the maximum delay before server B picks up the change (`0` = disabled) |
@@ -109,6 +111,7 @@ Use a custom activator for maintenance windows, feature flags, or cluster leader
 | `TASKS_EVENT_GATEWAY_TEMPLATE_PATH` | `tasks.event.gateway.template.path` | *(empty)* |
 | `TASKS_EVENT_GATEWAY_TEMPLATE_PATH_RECURSIVE` | `tasks.event.gateway.template.path.recursive` | `true` |
 | `TASKS_EVENT_GATEWAY_CHECKFORCHANGEINTERVAL` | `tasks.event.gateway.checkForChangeInterval` | `10` |
+| `TASKS_EVENT_GATEWAY_CHECKFORCHANGEBASEINTERVAL` | `tasks.event.gateway.checkForChangeBaseInterval` | `60` |
 | `TASKS_EVENT_GATEWAY_CHECKFORCHANGENOMATCHINTERVAL` | `tasks.event.gateway.checkForChangeNoMatchInterval` | `60` |
 | `TASKS_EVENT_GATEWAY_SETTINGLOCATION` | `tasks.event.gateway.settingLocation` | *(empty)* |
 | `TASKS_EVENT_GATEWAY_CHECKFORCHANGESETTINGINTERVAL` | `tasks.event.gateway.checkForChangeSettingInterval` | `0` |
@@ -183,7 +186,7 @@ Full documentation is in `source/components/org/lucee/cfml/Listener.cfc`.
 
 ## Creating a Task
 
-The TEG scans the component package from gateway configuration (e.g. `core.tasks` → `/core/tasks`). Any component extending `org.lucee.cfml.Task` is picked up and executed automatically. Changes to the CFC are detected on the next scan (see `checkForChangeInterval`).
+The TEG scans the component package from gateway configuration (e.g. `core.tasks` → `/core/tasks`). Any component extending `org.lucee.cfml.Task` is picked up and executed automatically. Changes to the CFC are detected on the next scan (see `checkForChangeInterval`). Changes to a base component or interface of a task are detected as well (see `checkForChangeBaseInterval`); every task extending or implementing it gets reloaded, and the log names the file that changed.
 
 ```cfc
 component extends="org.lucee.cfml.Task" {

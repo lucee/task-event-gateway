@@ -13,6 +13,8 @@ component extends="Gateway" {
             Main purpose of this is to execute old scheduled tasks, without having them to change to much.", "text" ) 
         , field( "Check for changes", "checkForChangeInterval", 10, false, 
             "Time interval for the Task Event Gateway to check for updates on already loaded Tasks.", "time" )
+        , field( "Check for changes on base components", "checkForChangeBaseInterval", 60, false, 
+            "Time interval for the Task Event Gateway to check for updates on the base components (extends) and interfaces (implements) of already loaded Tasks. A change reloads every Task that extends or implements the changed component. Because this check runs as part of the regular check (see ""Check for changes""), it is rounded up to a multiple of that interval. 0 is equal to not checking at all.", "time" )
         , field( "Check for changes on non Tasks", "checkForChangeNoMatchInterval", 60, false, 
             "Time interval for the Task Event Gateway to check on components/cfml templates that was not defined as a task before. Keep that number high when you have a lot of non task files in the target directory.", "time" )
         , field( "Setting location (Cache)", "settingLocation", "", true, 
