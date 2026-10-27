@@ -52,7 +52,8 @@ jobs:
       LUCEE_TEST_VERSIONS_JAKARTA: ${{ vars.LUCEE_TEST_VERSIONS_JAKARTA }}
     strategy:
       matrix:
-        lucee: ${{ fromJSON(vars.LUCEE_TEST_VERSIONS_JAKARTA) }}
+        # configuration variables are not available for pull requests from forks, so we need a fallback
+        lucee: ${{ fromJSON(vars.LUCEE_TEST_VERSIONS_JAKARTA || '[{"version":"7.0","query":"7.0/all/light"},{"version":"6.2","query":"6.2/all/light"}]') }}
     steps:
       - uses: actions/checkout@v4
 
