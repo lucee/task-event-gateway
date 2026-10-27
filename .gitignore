@@ -10,3 +10,4 @@ target/*
 *.lock
 *.DS_Store
 /cache
+.flattened-pom.xml
