@@ -118,6 +118,8 @@
                 <version>1.6.0</version>
                 <configuration>
                     <flattenMode>bom</flattenMode>
+                    <!-- flattened POM, used by the S3 upload (packaging pom is skipped by default) -->
+                    <updatePomFile>true</updatePomFile>
                 </configuration>
                 <executions>
                     <execution>
