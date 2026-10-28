@@ -132,9 +132,22 @@ dump(deserializeJSON(info));
 // pause / resume by full task name (component path)
 sendGatewayMessage("my-task", { action: "pause", task: "core.tasks.MyWorker" });
 sendGatewayMessage("my-task", { action: "resume", task: "core.tasks.MyWorker" });
+
+// load all tasks and listeners again (returns the new reload generation)
+generation = sendGatewayMessage("my-task", { action: "reload" });
 ```
 
 When `settingLocation` is configured, pause state is persisted in cache and survives gateway restarts; with `checkForChangeSettingInterval` > 0, other servers pick up changes within that interval.
+
+#### Reload all tasks
+
+The gateway recreates a task when its file, or a base component or interface of it, has changed. Code that has no such link to the task (for example a service a task creates in `init()`) is not tracked. After you have changed such code, `reload` tells the gateway that everything has changed, without restarting it:
+
+- The request is remembered as a *reload generation* of the gateway instance. With the next check for changes (`checkForChangeInterval`), every task and listener is handled exactly as if its own file had changed: running iterations finish, no new iteration starts on the old instance, and new instances are created (`init()` runs again). Tasks are not stopped and the gateway stays `running`.
+- It applies to the gateway instance with the given ID on the server that receives the message. In a cluster, send it to every server.
+- Several requests before the next check lead to a single reload.
+- State that lives outside the task instances (for example in the `application` scope or in `static` variables) is not reset.
+- `info` returns the current `reloadGeneration`, and for every task the generation it was loaded with, so you can verify that the reload has been applied.
 
 ### Logging
 
@@ -271,6 +284,7 @@ component extends="org.lucee.cfml.Listener" {
 | Task not picked up | CFC extends `org.lucee.cfml.Task`; package matches `custom.package`; mapping/webroot resolves |
 | Template task ignored | `@task` metadata present; file under `templatePath`; path reachable via internal request |
 | Changes not applied | Lower `checkForChangeInterval`; confirm file timestamp changed |
+| Changed code is not used by running tasks | The code is not part of the task component or its base components/interfaces; send `{ action: "reload" }` and check `reloadGeneration` in `info` |
 | Pause not synced across servers | Same `settingLocation` cache on all nodes; `checkForChangeSettingInterval` > 0 |
 | High CPU / log volume after errors | Increase `howLongToSleepAfterTheCallWhenError` on the task |
 

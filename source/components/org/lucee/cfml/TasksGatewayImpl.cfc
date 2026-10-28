@@ -6,6 +6,9 @@ component {
     variables.checkForChangeInterval=10000;
     variables.checkForChangeBaseInterval=60000;
     variables.lastBaseCheck=0;
+    variables.lastLoadedGeneration=0;
+    // reload generation: every "reload" request increases the counter, a task/listener that was loaded with an older generation is reloaded with the next check for changes
+    variables.reloadCounter=createObject("java","java.util.concurrent.atomic.AtomicLong").init(javacast("long",0));
     // components that end the inheritance chain we track for changes (they are part of this extension or the core)
     variables.CHAIN_STOP="org.lucee.cfml.Task,org.lucee.cfml.Listener,Component,lucee.Component,org.lucee.cfml.Component";
     variables.owner=this; // making owner global
@@ -175,6 +178,7 @@ component {
         var usage= "Send a key ""action"" to trigger a specific action in the gateway, the following actions are supported:
         - state: gives the current state (as string) of the gateway instance
         - info: gives information about the Event Gateway
+        - reload: marks all tasks and listeners as changed, with the next check for changes they are loaded again (running iterations finish first); returns the new reload generation
             ";
         if(!structKeyExists(data,"action")) return usage;
         
@@ -188,8 +192,10 @@ component {
                 ,'checkForChangeInterval':variables.checkForChangeInterval
                 ,'checkForChangeBaseInterval':variables.checkForChangeBaseInterval
                 ,'checkForChangeSettingInterval':variables.checkForChangeSettingInterval?:0
+                ,'reloadGeneration':getReloadGeneration()
                 ,'tasks':getTaskInfo()
             });
+            case "reload": return requestReload();
             case "pause": return toggle(data.task,true);
             case "resume": return toggle(data.task,false);
 
@@ -200,6 +206,25 @@ component {
         //  no matching action
         cfthrow(message:"invalid action [#data.action#]",detail:usage);
 	}
+
+    /**
+     * requests that all tasks and listeners of this gateway instance are loaded again, as if their file had changed.
+     * the request is only remembered (reload generation), the controller applies it with the next check for changes.
+     * @return the new reload generation
+     */
+    public numeric function requestReload() {
+        var generation=variables.reloadCounter.incrementAndGet();
+        _log("received a reload request (generation #generation#), all tasks and listeners get loaded again with the next check for changes");
+        return generation;
+    }
+
+    /**
+     * the current reload generation, increased with every reload request
+     */
+    public numeric function getReloadGeneration() {
+        return variables.reloadCounter.get();
+    }
+
     private function toggle(required string taskName, required boolean paused) {
         var tasks= variables._tasks;
         var task=tasks[taskName];
@@ -250,6 +275,7 @@ component {
                 ,'status':task.status
                 ,'path':task.path
                 ,'lastModified':task.lastModified
+                ,'reloadGeneration':task.reloadGeneration?:0
                 ,'sleepBefore':task.sleepBefore
                 ,'sleepAfter':task.sleepAfter
                 ,'sleepAfterOnError':task.sleepAfterOnError
@@ -610,6 +636,14 @@ component {
         
         var data={};
         var rawDatas=[];
+        // the reload generation is read once per cycle, a request that arrives during the cycle is handled with the next one
+        var reloadGeneration=getReloadGeneration();
+        if(!inital && reloadGeneration!=variables.lastLoadedGeneration) {
+            _log("a reload was requested (generation #reloadGeneration#), all tasks and listeners are handled as changed");
+            // forces to read the templates again
+            variables.templateCache={};
+        }
+        variables.lastLoadedGeneration=reloadGeneration;
         var fileCache={}; // path -> lastModified, so every file is only checked once per cycle (a shared base component costs one check)
         
         // base components/interfaces are not checked with every cycle, they have their own interval
@@ -653,7 +687,7 @@ component {
                 var fullName=isSimpleValue(rawData)?(variables.package&"."&rawData):rawData.template;
                 var reloadReason="";
                 if(!inital && structKeyExists(existing, fullName)) {
-                    reloadReason=getChangeReason(existing[fullName], fileCache, checkBase);
+                    reloadReason=getChangeReason(existing[fullName], fileCache, checkBase, reloadGeneration);
                     // nothing has changed
                     if(isEmpty(reloadReason)) {
                         _log("could not detected a change in component [#fullName#]","debug");
@@ -672,6 +706,7 @@ component {
                 el.reloadReason=reloadReason;
                 el.name=fullName;
                 el.id=hash(fullName,"quick");
+                el.reloadGeneration=reloadGeneration;
                 try {
                     inspectTemplates();}catch(e) {pagePoolClear();} // older Lucee version do not support inspectTemplates...
                     if(isSimpleValue(rawData)) {
@@ -782,7 +817,7 @@ component {
                 else el.status="deleted";
                 _log("marked #el.type# [#el.name#] as deleted","debug");
             }
-            else if (el.lastModified!=data[cfcName].lastModified || (el.chainHash?:"")!=(data[cfcName].chainHash?:"")) {
+            else if (el.lastModified!=data[cfcName].lastModified || (el.chainHash?:"")!=(data[cfcName].chainHash?:"") || (el.reloadGeneration?:0)!=(data[cfcName].reloadGeneration?:0)) {
                 existing[cfcName]=data[cfcName];
                 existing[cfcName].status="modified";
                 _log("marked #el.type# [#el.name#] as modified#len(data[cfcName].reloadReason?:"")?", because "&data[cfcName].reloadReason:""#","debug");
@@ -807,14 +842,18 @@ component {
      * @el the entry of the component as stored by loadCFCs
      * @fileCache path -> lastModified (ms) cache shared within one check cycle
      * @checkBase also check the base components and interfaces
+     * @reloadGeneration the current reload generation, a component that was loaded with a different one is reloaded (see action "reload")
      * @return empty string when nothing has changed, otherwise the reason why the component needs to be reloaded
      */
-    public string function getChangeReason(required struct el, required struct fileCache, boolean checkBase=true) {
+    public string function getChangeReason(required struct el, required struct fileCache, boolean checkBase=true, numeric reloadGeneration=getReloadGeneration()) {
         // own file
         var current=getLastModified(el.path, fileCache);
         if(current==-1) return "the file [#el.path#] of [#el.name#] no longer exists";
         if(current!=el.lastModified.getTime()) return "the file [#el.path#] of [#el.name#] has changed";
         
+        // reload requested from outside
+        if((el.reloadGeneration?:0)!=arguments.reloadGeneration) return "a reload of all tasks was requested (generation #arguments.reloadGeneration#)";
+
         // base components and interfaces
         if(arguments.checkBase && structKeyExists(el, "chain")) {
             loop struct=el.chain index="local.path" item="local.lastModified" {
