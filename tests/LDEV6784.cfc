@@ -138,11 +138,39 @@ component extends="org.lucee.cfml.test.LuceeTestCase" labels="tasks" {
 				expect( deserializeJson( gw.sendMessage( { action: "info" } ) ).reloadGeneration ).toBe( 1 );
 			});
 
+			it( "keeps the reason of the last reload for every task in the action info", function() {
+				var gw = newGateway( 1 );
+				var cfcs = gw.loadCFCs();
+				var info = gw.getTaskInfo( tasksOf( cfcs ) );
+				expect( info[ variables.pkg & ".MyTask" ] ).toHaveKey( "reloadReason" );
+				expect( info[ variables.pkg & ".MyTask" ].reloadReason ).toBe( "" );
+
+				gw.sendMessage( { action: "reload" } );
+				cfcs = gw.loadCFCs( cfcs );
+				info = gw.getTaskInfo( tasksOf( cfcs ) );
+				expect( info[ variables.pkg & ".MyTask" ].reloadReason ).toInclude( "a reload of all tasks was requested" );
+				expect( info[ variables.pkg & ".OtherTask" ].reloadReason ).toInclude( "a reload of all tasks was requested" );
+
+				// a check without a change keeps the reason of the last reload
+				cfcs = gw.loadCFCs( cfcs );
+				info = gw.getTaskInfo( tasksOf( cfcs ) );
+				expect( statusOf( cfcs, "MyTask" ) ).toBe( "existing" );
+				expect( info[ variables.pkg & ".MyTask" ].reloadReason ).toInclude( "a reload of all tasks was requested" );
+			});
+
 			it( "lists the reload action in the usage", function() {
 				var gw = newGateway( 1 );
 				expect( gw.sendMessage( {} ) ).toInclude( "reload" );
 			});
 		});
+	}
+
+	private function tasksOf( required struct cfcs ) {
+		var tasks = {};
+		loop struct=arguments.cfcs index="local.name" item="local.el" {
+			if ( el.type == "task" ) tasks[ name ] = el;
+		}
+		return tasks;
 	}
 
 	private function statusOf( required struct cfcs, required string name ) {

@@ -259,12 +259,19 @@ component {
         return data.paused?:false;
     }
 
-    private function getTaskInfo() {
-        if(!structKeyExists(variables,"_tasks")) return {};
+    /**
+     * information about the tasks for the action "info"
+     * @loaded the loaded tasks, by default the tasks of the running controller
+     */
+    public function getTaskInfo(struct loaded) {
+        if(isNull(arguments.loaded)) {
+            if(!structKeyExists(variables,"_tasks")) return {};
+            arguments.loaded=variables._tasks;
+        }
         
         // define tasks
         var tasks={};
-        loop struct=variables._tasks index="local.name" item="local.task" {
+        loop struct=arguments.loaded index="local.name" item="local.task" {
             var label=task.properties.task?:"";
             if(isNull(label) || isEmpty(label)) label=ListLast(task.name,"./\");
             tasks[task.name]={
@@ -276,6 +283,7 @@ component {
                 ,'path':task.path
                 ,'lastModified':task.lastModified
                 ,'reloadGeneration':task.reloadGeneration?:0
+                ,'reloadReason':task.reloadReason?:""
                 ,'sleepBefore':task.sleepBefore
                 ,'sleepAfter':task.sleepAfter
                 ,'sleepAfterOnError':task.sleepAfterOnError
