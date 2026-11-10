@@ -81,7 +81,7 @@ The `custom` fields control TEG behaviour:
 
 | Setting | Description |
 |---|---|
-| `package` | Component package the TEG scans for Task/Listener CFCs (e.g. `core.tasks` maps to `/core/tasks`) |
+| `package` | Component package(s) the TEG scans for Task/Listener CFCs. A single package (`core.tasks`, mapping to `/core/tasks`), a comma-separated list (`core.tasks,optional.tasks`), or an array in `.CFConfig.json` (`["core.tasks", "optional.tasks"]`). Every package is scanned; a package that does not exist or is empty is skipped. A single package string keeps working as before. When two packages contain a CFC with the same simple name, both are loaded and are identified by their full component name (e.g. `core.tasks.MyWorker` and `optional.tasks.MyWorker`). |
 | `templatePath` | Absolute path, mapping, or webroot-relative path to a folder containing `.cfm`-based tasks |
 | `templatePathRecursive` | When `true` (default), scan `templatePath` recursively for `.cfm` task templates |
 | `checkForChangeInterval` | Seconds between file-change checks for components/templates already identified as tasks. Higher values reduce I/O but slow detection of code changes |
@@ -92,6 +92,23 @@ The `custom` fields control TEG behaviour:
 | `logName` | Lucee log file the TEG writes to (default: `application`) |
 
 Gateway instance settings take precedence over environment variables and JVM system properties.
+
+#### Multiple packages
+
+`package` (and `TASKS_EVENT_GATEWAY_PACKAGE` / `tasks.event.gateway.package`) accepts more than one package, so one gateway instance can load tasks and listeners from several folders without a separate instance per package.
+
+```json
+"package": "core.tasks,optional.tasks"
+```
+
+```json
+"package": ["core.tasks", "optional.tasks"]
+```
+
+Entries are trimmed and empty ones are ignored. The administrator field is a text field, so use the comma-separated form there. The action `info` returns both `package` (the resolved comma-separated string) and `packages` (the resolved array).
+
+Duplicate simple names are allowed: pause, resume, and `info` always use the full component name. Listener `allow` / `deny` still match both the full name and the simple name, so a simple name such as `MyWorker` would match every package that contains that component; use the full name to target only one.
+
 
 #### Activator
 
@@ -199,7 +216,7 @@ Full documentation is in `source/components/org/lucee/cfml/Listener.cfc`.
 
 ## Creating a Task
 
-The TEG scans the component package from gateway configuration (e.g. `core.tasks` → `/core/tasks`). Any component extending `org.lucee.cfml.Task` is picked up and executed automatically. Changes to the CFC are detected on the next scan (see `checkForChangeInterval`). Changes to a base component or interface of a task are detected as well (see `checkForChangeBaseInterval`); every task extending or implementing it gets reloaded, and the log names the file that changed.
+The TEG scans every component package from gateway configuration (e.g. `core.tasks` → `/core/tasks`). Any component extending `org.lucee.cfml.Task` is picked up and executed automatically. Changes to the CFC are detected on the next scan (see `checkForChangeInterval`). Changes to a base component or interface of a task are detected as well (see `checkForChangeBaseInterval`); every task extending or implementing it gets reloaded, and the log names the file that changed.
 
 ```cfc
 component extends="org.lucee.cfml.Task" {
@@ -247,7 +264,7 @@ Inside the template, the same arguments passed to `invoke()` are available in th
 
 ## Creating a Listener
 
-Listeners extend `org.lucee.cfml.Listener` and implement `onExecutionStart`, `onExecutionEnd`, and `onError`. They are discovered from the same package as tasks.
+Listeners extend `org.lucee.cfml.Listener` and implement `onExecutionStart`, `onExecutionEnd`, and `onError`. They are discovered from the same package(s) as tasks.
 
 ```cfc
 component extends="org.lucee.cfml.Listener" {
@@ -281,7 +298,7 @@ component extends="org.lucee.cfml.Listener" {
 | Symptom | Things to check |
 |---|---|
 | Gateway state stays `stopped` | Activator `active()` returns false; check gateway log for startup errors |
-| Task not picked up | CFC extends `org.lucee.cfml.Task`; package matches `custom.package`; mapping/webroot resolves |
+| Task not picked up | CFC extends `org.lucee.cfml.Task`; its package is in `custom.package` (single package, comma-separated list, or array); mapping/webroot resolves |
 | Template task ignored | `@task` metadata present; file under `templatePath`; path reachable via internal request |
 | Changes not applied | Lower `checkForChangeInterval`; confirm file timestamp changed |
 | Changed code is not used by running tasks | The code is not part of the task component or its base components/interfaces; send `{ action: "reload" }` and check `reloadGeneration` in `info` |
