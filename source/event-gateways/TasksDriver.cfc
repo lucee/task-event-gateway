@@ -4,8 +4,7 @@ component extends="Gateway" {
     fields = array(
 
         field( "Package name", "package", "org.lucee.cfml.tasks", true, 
-            "Name of the package (folder) where the Task component are located. Task comonent must extend the component ""org.lucee.cfml.Task"",
-            if not defined here, the Task Event Gateway will look for the following enviroment variable as a global setting [TASK_EVENT_GATEWAY_PACKAGE] or the system property [tasks.event.gateway.package], if there is no definition at all the engine will use the package name [org.lucee.cfml.tasks]. ", "text" ) 
+            "Package (folder) where the Task and Listener components are located. Task components must extend ""org.lucee.cfml.Task"". You can name a single package, or several packages as a comma-separated list (for example ""com.example.tasks.core,com.example.tasks.optional""). Every listed package is scanned; a package that does not exist or is empty is skipped. Tasks with the same simple name in different packages are both loaded and are identified by their full component name. If not defined here, the Task Event Gateway looks for the environment variable [TASKS_EVENT_GATEWAY_PACKAGE] or the system property [tasks.event.gateway.package] (they accept the same comma-separated form). If there is no definition at all the engine uses the package name [org.lucee.cfml.tasks].", "text" ) 
         , field( "Template path", "templatePath", "", true, 
             "Path to a folder that contains templates to execute, the templates must contain metadata (read more in the documentation 
             for tempate path), the template must be within the webroot or in a exposed mapping, 

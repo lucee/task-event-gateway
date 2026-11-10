@@ -23,14 +23,16 @@ component {
 
             _log("init");
             variables.config=config;
-            // package
-            variables.package=config.package?:"";
-            if(isEmpty(variables.package)) variables.package = readSystemPropOrEnvVar("tasks.event.gateway.package", "org.lucee.cfml.tasks");
+            // package (single package, comma-separated list, or array)
+            variables.packages=parsePackages(config.package?:"");
+            if(!len(variables.packages)) variables.packages = parsePackages(readSystemPropOrEnvVar("tasks.event.gateway.package", "org.lucee.cfml.tasks"));
             // patch for backward compatibility to older version, because we did depend that this is set by default
-            else if(variables.package=="distrocore.tasks") {
-                local.tmp = readSystemPropOrEnvVar("tasks.event.gateway.package", "");
-                if(!isEmpty(tmp)) variables.package=tmp;
+            else if(len(variables.packages)==1 && variables.packages[1]=="distrocore.tasks") {
+                local.tmp = parsePackages(readSystemPropOrEnvVar("tasks.event.gateway.package", ""));
+                if(len(tmp)) variables.packages=tmp;
             }
+            // string form kept for backward compatibility (comma-separated when there is more than one package)
+            variables.package=arrayToList(variables.packages, ",");
             // template path
             variables.templatePath=config.templatePath?:"";
             if(isEmpty(variables.templatePath)) variables.templatePath = readSystemPropOrEnvVar("tasks.event.gateway.template.path", "");
@@ -192,6 +194,8 @@ component {
                 ,'checkForChangeInterval':variables.checkForChangeInterval
                 ,'checkForChangeBaseInterval':variables.checkForChangeBaseInterval
                 ,'checkForChangeSettingInterval':variables.checkForChangeSettingInterval?:0
+                ,'package':variables.package?:""
+                ,'packages':variables.packages?:[]
                 ,'reloadGeneration':getReloadGeneration()
                 ,'tasks':getTaskInfo()
             });
@@ -664,12 +668,14 @@ component {
             variables.lastBaseCheck=getTickCount();
             _log("check base components/interfaces of the tasks for changes","debug");
         }
-        try{
-            loop array=ComponentListPackage(variables.package) item="local.cfcName" {
-                arrayAppend(rawDatas, cfcName);
+        loop array=variables.packages item="local.pkg" {
+            try{
+                loop array=ComponentListPackage(pkg) item="local.cfcName" {
+                    arrayAppend(rawDatas, {package:pkg, name:cfcName});
+                }
             }
-        }
-        catch(e) {// throws an error if there are no tasks
+            catch(e) {// throws an error if the package does not exist or has no components
+            }
         }
 
          // load from templates
@@ -691,8 +697,8 @@ component {
    
         loop array=rawDatas item="local.rawData" {
             try {
-                // when simple value it is a component name otherwise template info
-                var fullName=isSimpleValue(rawData)?(variables.package&"."&rawData):rawData.template;
+                // a package entry is a component from a package, otherwise it is template info
+                var fullName=isPackageEntry(rawData)?packageEntryFullName(rawData):rawData.template;
                 var reloadReason="";
                 if(!inital && structKeyExists(existing, fullName)) {
                     reloadReason=getChangeReason(existing[fullName], fileCache, checkBase, reloadGeneration);
@@ -717,7 +723,7 @@ component {
                 el.reloadGeneration=reloadGeneration;
                 try {
                     inspectTemplates();}catch(e) {pagePoolClear();} // older Lucee version do not support inspectTemplates...
-                    if(isSimpleValue(rawData)) {
+                    if(isPackageEntry(rawData)) {
                         el.meta=getComponentMetadata(el.name);
                         if((el.meta.abstract?:false) || (el.meta.type?:"")=="interface") {
                             // abstract components and interfaces (for example a base component of tasks) are no tasks themself,
@@ -758,10 +764,10 @@ component {
 
                     // file info
                     el.template=fullname;
-                    setFileInfo(el, isSimpleValue(rawData)?el.meta.path:fullname, fileCache);
+                    setFileInfo(el, isPackageEntry(rawData)?el.meta.path:fullname, fileCache);
 
                     // base components and interfaces (not for templates, they all share the same base component of this extension)
-                    if(isSimpleValue(rawData)) {
+                    if(isPackageEntry(rawData)) {
                         el.chain=collectChain(el.meta, el.path, fileCache);
                     }
                     else {
@@ -1063,6 +1069,48 @@ component {
         });
             
         return results;
+    }
+
+
+    /**
+     * accepts a single package, a comma-separated list, or an array of packages.
+     * entries are trimmed, empty ones are ignored, duplicates are dropped (first wins, case-insensitive).
+     */
+    private array function parsePackages(package) {
+        var packages=[];
+        if(isNull(arguments.package)) return packages;
+        var raw=[];
+        if(isArray(arguments.package)) raw=arguments.package;
+        else if(isSimpleValue(arguments.package)) raw=listToArray(arguments.package, ",");
+        else return packages;
+
+        var seen={};
+        loop array=raw item="local.item" {
+            if(!isSimpleValue(item)) continue;
+            var name=trim(item);
+            if(isEmpty(name)) continue;
+            var key=lCase(name);
+            if(structKeyExists(seen, key)) continue;
+            seen[key]=true;
+            arrayAppend(packages, name);
+        }
+        return packages;
+    }
+
+    /**
+     * a package scan entry is either a component simple name (legacy) or a struct {package, name}
+     */
+    private boolean function isPackageEntry(rawData) {
+        if(isSimpleValue(rawData)) return true;
+        return isStruct(rawData) && structKeyExists(rawData, "package") && structKeyExists(rawData, "name");
+    }
+
+    private string function packageEntryFullName(rawData) {
+        if(isSimpleValue(rawData)) {
+            var pkg=len(variables.packages?:[])?variables.packages[1]:(variables.package?:"");
+            return pkg&"."&rawData;
+        }
+        return rawData.package&"."&rawData.name;
     }
 
     private function readSystemPropOrEnvVar(key, defaultValue) {
