@@ -25,6 +25,18 @@ component extends="org.lucee.cfml.test.LuceeTestCase" labels="tasks" {
 		writeTask( variables.dirOptional & "OptionalWorker.cfc", "optional" );
 		writeTask( variables.dirOptional & "SharedName.cfc", "optional-shared" );
 		fileWrite( variables.dirCore & "Helper.cfc", "component {}" );
+
+		// separate packages for the runtime tests, so the loadCFCs() counts above stay the same
+		variables.pkgRunCore = variables.basePkg & ".runCore";
+		variables.pkgRunOptional = variables.basePkg & ".runOptional";
+		variables.dirRunCore = variables.dir & "runCore/";
+		variables.dirRunOptional = variables.dir & "runOptional/";
+		variables.markerCore = variables.dir & "ran-core.txt";
+		variables.markerOptional = variables.dir & "ran-optional.txt";
+		directoryCreate( variables.dirRunCore );
+		directoryCreate( variables.dirRunOptional );
+		writeRunnableTask( variables.dirRunCore & "CoreRunner.cfc", variables.markerCore );
+		writeRunnableTask( variables.dirRunOptional & "OptionalRunner.cfc", variables.markerOptional );
 	}
 
 	function afterAll() {
@@ -107,6 +119,56 @@ component extends="org.lucee.cfml.test.LuceeTestCase" labels="tasks" {
 				expect( cfcs[ variables.pkgCore & ".CoreWorker" ].status ).toBe( "existing" );
 			});
 		});
+
+		describe( "LDEV-6905 tasks from every configured package actually run", function() {
+
+			it( "starts the gateway with a comma-separated package list and invokes tasks from both packages", function() {
+				deleteMarkers();
+				var gw = newGateway( variables.pkgRunCore & "," & variables.pkgRunOptional );
+				try {
+					gw.start();
+					expect( gw.getState() ).toBe( "running" );
+					waitForMarkers( [ variables.markerCore, variables.markerOptional ] );
+					expect( fileExists( variables.markerCore ) ).toBeTrue( "task from the first package should have been invoked" );
+					expect( fileExists( variables.markerOptional ) ).toBeTrue( "task from the second package should have been invoked" );
+				}
+				finally {
+					stopGateway( gw );
+				}
+			});
+
+			it( "starts the gateway with an array of packages and invokes tasks from both packages", function() {
+				deleteMarkers();
+				var gw = newGateway( [ variables.pkgRunCore, variables.pkgRunOptional ] );
+				try {
+					gw.start();
+					expect( gw.getState() ).toBe( "running" );
+					waitForMarkers( [ variables.markerCore, variables.markerOptional ] );
+					expect( fileExists( variables.markerCore ) ).toBeTrue( "task from the first package should have been invoked" );
+					expect( fileExists( variables.markerOptional ) ).toBeTrue( "task from the second package should have been invoked" );
+				}
+				finally {
+					stopGateway( gw );
+				}
+			});
+
+			it( "does not invoke a task from a package that is not in the setting", function() {
+				deleteMarkers();
+				var gw = newGateway( variables.pkgRunCore );
+				try {
+					gw.start();
+					expect( gw.getState() ).toBe( "running" );
+					waitForMarkers( [ variables.markerCore ] );
+					expect( fileExists( variables.markerCore ) ).toBeTrue( "task from the configured package should have been invoked" );
+					// both packages would have started at the same time, so a short extra wait is enough
+					sleep( 200 );
+					expect( fileExists( variables.markerOptional ) ).toBeFalse( "task from a package that was not configured should not have been invoked" );
+				}
+				finally {
+					stopGateway( gw );
+				}
+			});
+		});
 	}
 
 	private function taskNames( required struct cfcs ) {
@@ -126,6 +188,46 @@ component extends="org.lucee.cfml.test.LuceeTestCase" labels="tasks" {
 			logName: "application"
 		} );
 		return gw;
+	}
+
+	private function writeRunnableTask( required string path, required string markerPath ) {
+		fileWrite( arguments.path, 'component extends="org.lucee.cfml.Task" {
+	public numeric function getHowLongToSleepAfterTheCall() { return 50; }
+	public numeric function getHowLongToSleepAfterTheCallWhenError() { return 50; }
+	public numeric function getHowLongToWaitForTaskOnStop() { return 1000; }
+	public boolean function getForceStop() { return true; }
+	public void function invoke(required string id, required numeric iterations, required numeric errors, numeric lastExecutionTime, date lastExecutionDate, struct lastError) {
+		fileWrite("#arguments.markerPath#", "ran");
+	}
+}' );
+	}
+
+	private function deleteMarkers() {
+		if ( fileExists( variables.markerCore ) ) fileDelete( variables.markerCore );
+		if ( fileExists( variables.markerOptional ) ) fileDelete( variables.markerOptional );
+	}
+
+	private function waitForMarkers( required array paths, numeric timeoutMs=5000 ) {
+		var deadline = getTickCount() + arguments.timeoutMs;
+		while ( getTickCount() < deadline ) {
+			var ready = true;
+			loop array=arguments.paths item="local.p" {
+				if ( !fileExists( p ) ) {
+					ready = false;
+					break;
+				}
+			}
+			if ( ready ) return;
+			sleep( 25 );
+		}
+	}
+
+	private function stopGateway( required any gw ) {
+		if ( isNull( arguments.gw ) ) return;
+		try {
+			if ( arguments.gw.getState() == "running" ) arguments.gw.stop();
+		}
+		catch ( any e ) {}
 	}
 
 	private function writeTask( required string path, required string version ) {
